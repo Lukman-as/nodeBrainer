@@ -428,7 +428,7 @@ export function KnowledgeWorkspace({
   return (
     <div className="app-shell lattice-app">
       <aside className="sidebar">
-        <Link className="brand" href="/">
+        <Link className="brand" href={live ? "/workspace" : "/"} prefetch={false}>
           <span className="brand-mark">
             <Network size={23} />
           </span>
@@ -504,7 +504,7 @@ export function KnowledgeWorkspace({
             A second brain.
             <br />A new perspective.
           </p>
-          <Link href="/setup" className="edition">
+          <Link href="/setup" className="edition" prefetch={false}>
             WORKSPACE SETTINGS <ArrowUpRight size={12} />
           </Link>
         </div>
@@ -554,7 +554,7 @@ export function KnowledgeWorkspace({
             >
               <ArrowDownToLine size={17} />
             </button>
-            <Link className="icon-button" href="/setup" aria-label="Settings">
+            <Link className="icon-button" href="/setup" aria-label="Settings" prefetch={false}>
               <Settings2 size={17} />
             </Link>
           </div>

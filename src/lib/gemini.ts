@@ -5,66 +5,25 @@ import { extractionSchema } from "./validation";
 import { ApiError } from "./http";
 import { AnswerSource, validateAnswerDraft } from "./answers";
 
-// Comma-separated, in order of preference; later models are fallbacks.
-const model = () =>
-  (process.env.GEMINI_MODEL || "gemini-3.8-flash")
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean);
-// Quota spent, model withdrawn, or model overloaded: another model may still answer.
-const fallbackStatuses = [429, 404, 503];
+import { GeminiTransport, parseModels } from "./gemini-transport";
+
+const model = () => parseModels(process.env.GEMINI_MODEL || "gemini-3.8-flash");
 export const embeddingModel = () =>
   process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
-// ponytail: every request retries exhausted models first (fast 429s); remember them if that latency matters.
+const transport = new GeminiTransport();
 async function callGemini(
   modelNames: string | string[],
   action: string,
   body: unknown,
   timeout = action === "generateContent" ? 40000 : 12000,
 ) {
-  if (!process.env.GEMINI_API_KEY)
+  const key = process.env.GEMINI_API_KEY;
+  if (!key)
     throw new ApiError(
       503,
       "Add a Gemini API key to enable PDF, image, and video extraction.",
     );
-  const names = [modelNames].flat();
-  let response!: Response;
-  for (const [index, modelName] of names.entries()) {
-    response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:${action}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": process.env.GEMINI_API_KEY,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeout),
-      },
-    ).catch((error) => {
-      if (error?.name === "TimeoutError")
-        throw new ApiError(
-          504,
-          "Gemini took too long to process this content. Try a shorter video or smaller file.",
-        );
-      throw error;
-    });
-    if (response.ok || !fallbackStatuses.includes(response.status)) break;
-    if (index < names.length - 1)
-      console.warn(
-        `Gemini ${modelName} returned ${response.status}; trying ${names[index + 1]}.`,
-      );
-  }
-  if (!response.ok)
-    throw new ApiError(
-      response.status === 429 ? 429 : 502,
-      response.status === 429
-        ? "Gemini quota reached. Wait a moment and try again."
-        : response.status === 503
-          ? "Gemini is overloaded right now. Try again in a moment."
-          : "Gemini could not process this content. Check model availability and your API key.",
-    );
-  return response.json();
+  return transport.call(key, [modelNames].flat(), action, body, timeout);
 }
 export async function embedSegments(segments: Segment[]): Promise<Segment[]> {
   if (

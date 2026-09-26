@@ -2895,3 +2895,9 @@ select:focus-visible {
     width: 70%;
   }
 }
+.setup-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}

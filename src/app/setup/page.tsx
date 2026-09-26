@@ -1,15 +1,21 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Mountain } from "lucide-react";
-import { isAuthConfigured } from "@/lib/auth0";
+import { getAuth0, isAuthConfigured } from "@/lib/auth0";
 
 export const dynamic = "force-dynamic";
-export default function SetupPage() {
+export default async function SetupPage() {
   const ready = isAuthConfigured();
+  const session = ready ? await getAuth0().getSession() : null;
+  const user = session?.user?.sub ? session.user : null;
   return (
     <main className="setup-page">
-      <Link className="back-link" href="/">
+      <Link
+        className="back-link"
+        href={user ? "/workspace" : "/"}
+        prefetch={false}
+      >
         <ArrowLeft size={16} />
-        Back to the demo
+        {user ? "Back to workspace" : "Back to the demo"}
       </Link>
       <div className="setup-card">
         <span className="brand-mark">
@@ -18,8 +24,9 @@ export default function SetupPage() {
         <div className="eyebrow">MAKE IT YOURS</div>
         <h1>Connect your knowledge space.</h1>
         <p>
-          Try the interactive demo any time. Connect your accounts to save a
-          private multimedia library.
+          {user
+            ? "You’re signed in. Return to your private library or manage your account below."
+            : "Try the interactive demo any time. Connect your accounts to save a private multimedia library."}
         </p>
         <ol className="setup-list">
           <li>
@@ -47,8 +54,8 @@ export default function SetupPage() {
             <p>
               Create a Tiger Cloud PostgreSQL service and set{" "}
               <code>DATABASE_URL</code>. Then run npm run db:setup to create
-              tables and indexes. Notes, source files, and extracted passages are stored
-              privately under your Auth0 account.
+              tables and indexes. Notes, source files, and extracted passages
+              are stored privately under your Auth0 account.
             </p>
           </li>
           <li>
@@ -69,15 +76,35 @@ export default function SetupPage() {
           </li>
         </ol>
         <div className="setup-status">
-          {ready
-            ? "Auth0 credentials are configured. You can try signing in."
-            : "Auth0 needs configuration before sign-in is available."}
+          {user
+            ? `Signed in as ${user.name || user.email || "your account"}.`
+            : ready
+              ? "Auth0 credentials are configured. You can try signing in."
+              : "Auth0 needs configuration before sign-in is available."}
         </div>
-        {ready && (
-          <a className="button dark" href="/auth/login">
-            Sign in with Auth0
-            <ArrowRight size={17} />
-          </a>
+        {user ? (
+          <div className="setup-account-actions">
+            <Link className="button dark" href="/workspace" prefetch={false}>
+              Return to workspace
+              <ArrowRight size={17} />
+            </Link>
+            <a
+              className="text-action"
+              href="/auth/login?prompt=login&returnTo=%2Fworkspace"
+            >
+              Switch account
+            </a>
+            <a className="text-action" href="/auth/logout">
+              Log out
+            </a>
+          </div>
+        ) : (
+          ready && (
+            <a className="button dark" href="/auth/login">
+              Sign in with Auth0
+              <ArrowRight size={17} />
+            </a>
+          )
         )}
       </div>
     </main>

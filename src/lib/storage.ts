@@ -4,11 +4,20 @@ import { ApiError } from "./api-error";
 /** Supabase Storage over its REST API. Objects live in a private bucket; the service key never leaves the server. */
 export const BUCKET = "assets";
 
+export function isStorageConfigured() {
+  return Boolean(
+    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+}
+
 function config() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key)
-    throw new ApiError(503, "Add Supabase Storage settings to store uploaded files.");
+    throw new ApiError(
+      503,
+      "Add Supabase Storage settings to store uploaded files.",
+    );
   return { base: `${url.replace(/\/$/, "")}/storage/v1`, key };
 }
 
@@ -19,7 +28,8 @@ async function call(path: string, init: RequestInit) {
     headers: { apikey: key, Authorization: `Bearer ${key}`, ...init.headers },
     signal: AbortSignal.timeout(60000),
   });
-  if (!response.ok) throw new ApiError(502, "File storage is unavailable. Try again shortly.");
+  if (!response.ok)
+    throw new ApiError(502, "File storage is unavailable. Try again shortly.");
   return response;
 }
 

@@ -4,16 +4,20 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
   id text NOT NULL,
   document jsonb NOT NULL,
   created_at timestamptz NOT NULL,
-  asset bytea, -- legacy: files uploaded before object storage
+  asset bytea, -- private file bytes when object storage is not configured
   asset_path text, -- object key in the Supabase Storage "assets" bucket
   mime text,
   PRIMARY KEY (owner_id, id),
   CHECK (jsonb_typeof(document) = 'object'),
   CHECK (document->>'id' = id),
   CHECK ((document->>'version')::integer > 0),
-  CHECK (asset IS NULL OR octet_length(asset) <= 3145728)
+  CONSTRAINT knowledge_items_asset_check CHECK (asset IS NULL OR octet_length(asset) <= 14000000)
 );
 ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS asset_path text;
+-- Upgrade the original 3 MiB fallback cap to the app's 14 MB upload cap.
+ALTER TABLE knowledge_items DROP CONSTRAINT IF EXISTS knowledge_items_asset_check;
+ALTER TABLE knowledge_items ADD CONSTRAINT knowledge_items_asset_check
+  CHECK (asset IS NULL OR octet_length(asset) <= 14000000);
 CREATE INDEX IF NOT EXISTS knowledge_items_owner_created
   ON knowledge_items (owner_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS request_limits (

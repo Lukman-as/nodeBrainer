@@ -42,6 +42,13 @@ export function apiError(error: unknown) {
   console.error(
     "Request failed:",
     error instanceof Error ? error.name : "UnknownError",
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      /^[A-Z0-9_]{1,64}$/.test(error.code)
+      ? error.code
+      : "UNCLASSIFIED",
   );
   return json(
     {

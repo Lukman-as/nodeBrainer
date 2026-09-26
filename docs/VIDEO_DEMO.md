@@ -66,3 +66,15 @@ Free-tier Gemini content may be used to improve Google's products. Start with no
 - **Focus a source** and **Open source** provide a keyboard alternative.
 
 Only library items are data nodes. Faint cortical contours are decoration, not fabricated connections. The 3D renderer caps visible edges at 1,200; this does not change retrieval.
+
+## Automatic model fallback
+
+Set `GEMINI_MODEL` in `.env.local` to an ordered, comma-separated list of compatible generation models. A single name provides no fallback. For example:
+
+```env
+GEMINI_MODEL=gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash
+```
+
+The server tries the next configured model on quota (429), unavailable model (404), or overload (503). It temporarily skips failed models on subsequent requests, respecting provider retry intervals with a minimum 60-second cooldown (five minutes for unavailable models). Cooldowns are local to each server process and reset on restart. All attempts share the request's existing timeout budget. Authentication and invalid-input errors are not retried across models.
+
+Embedding models are kept separate to avoid mixing incompatible vector spaces. Switching generation models cannot guarantee success when all alternatives have exhausted quotas or project-level limits apply. `npm run gemini:check` checks the first model; fallback behavior has separate automated tests. Restart the development server after changing the environment list.

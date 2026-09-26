@@ -6,7 +6,7 @@ import { KnowledgeItem, segmentText } from "@/lib/knowledge";
 import { embedSegments, extractMedia } from "@/lib/gemini";
 import { extractArticle, validatePublicUrl } from "@/lib/safe-url";
 import { limitExpensiveRequests } from "@/lib/rate-limit";
-import { deleteAsset, uploadAsset } from "@/lib/storage";
+import { deleteAsset, uploadAsset, isStorageConfigured } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 150;
@@ -26,7 +26,10 @@ export async function POST(request: Request) {
     const ownerId = await requireOwner(request);
     await limitExpensiveRequests(ownerId);
     let item: KnowledgeItem;
-    let asset: { path: string; mime: string } | undefined;
+    let asset:
+      | { path: string; mime: string }
+      | { buffer: Buffer; mime: string }
+      | undefined;
     const now = new Date().toISOString();
     const base = {
       id: randomUUID(),
@@ -114,8 +117,12 @@ export async function POST(request: Request) {
           content: extracted.segments.map((s) => s.text).join("\n\n"),
           hasAsset: true,
         };
-        asset = { path: base.id, mime: file.type };
-        await uploadAsset(asset.path, buffer, file.type);
+        if (isStorageConfigured()) {
+          asset = { path: base.id, mime: file.type };
+          await uploadAsset(asset.path, buffer, file.type);
+        } else {
+          asset = { buffer, mime: file.type };
+        }
       }
     } else {
       const input = z
@@ -155,7 +162,8 @@ export async function POST(request: Request) {
       item.segments = await embedSegments(item.segments);
       await insertItem(ownerId, item, asset);
     } catch (error) {
-      if (asset) await deleteAsset(asset.path).catch(() => {});
+      if (asset && "path" in asset)
+        await deleteAsset(asset.path).catch(() => {});
       throw error;
     }
     return json({ item: withoutVectors(item) }, 201);
