@@ -5,6 +5,7 @@ import { noteInput } from "@/lib/validation";
 import { segmentText } from "@/lib/knowledge";
 import { embedSegments } from "@/lib/gemini";
 import { limitExpensiveRequests } from "@/lib/rate-limit";
+import { deleteAsset } from "@/lib/storage";
 
 type Context = { params: Promise<{ id: string }> };
 export const maxDuration = 60;
@@ -49,7 +50,11 @@ export async function DELETE(request: Request, context: Context) {
   try {
     const ownerId = await requireOwner(request);
     const { id } = await context.params;
-    if (!(await deleteItem(ownerId, id))) throw new ApiError(404, "Item not found.");
+    const deleted = await deleteItem(ownerId, id);
+    if (!deleted) throw new ApiError(404, "Item not found.");
+    // The row is already gone; a leftover object is harmless, so storage errors are only logged.
+    if (deleted.asset_path)
+      await deleteAsset(deleted.asset_path).catch(() => console.error("Asset cleanup failed."));
     return json({ deleted: true });
   } catch (error) {
     return apiError(error);

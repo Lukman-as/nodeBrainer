@@ -69,7 +69,7 @@ Keep secrets in `.env.local` or hosting environment variables. Never prefix secr
 | PDF/image/short-video extraction        | Illustrative samples only  | Gemini key + per-import consent                  |
 | Public article import                   | Paste an excerpt as a note | Safe server-side HTML extraction                 |
 | Public YouTube understanding            | Illustrative sample only   | Gemini preview capability; availability varies   |
-| Source files                            | No sample originals        | Private MongoDB binary assets, at most 3 MB each |
+| Source files                            | No sample originals        | Private Supabase Storage objects, at most 14 MB each |
 | User authentication                     | No; public sandbox         | Auth0                                            |
 
 The APIs are implemented but live provider calls need your credentials. No tenant, cloud database, paid account, or public deployment was created.
@@ -122,12 +122,11 @@ docs/SPONSOR_STRATEGY.md         Free tiers, sponsor fit and demo strategy
 
 - One personal library per Auth0 account. No shared workspaces or collaboration yet.
 - Up to 200 items per library. Retrieval scans the bounded library and graph building compares pairs. It is not an Atlas Vector Search implementation or a large-corpus benchmark.
-- Uploads are capped at 3 MB, notes at 40,000 characters, and extraction at 24 representative passages. Media processing runs during the HTTP request with a provider timeout. There is no durable worker, job queue, cancellation/resume, ZIP vault import, or full-video transcription yet.
+- Uploads are capped at 14 MB (Gemini inline limit), notes at 40,000 characters, and extraction at 24 representative passages. Media processing runs during the HTTP request with a provider timeout. There is no durable worker, job queue, cancellation/resume, ZIP vault import, or full-video transcription yet.
 - Failed imports return a clear error and can be resubmitted; failed source files are not persisted as jobs. Do not present the prototype as a durable ingestion service.
 - PDF pages and video timestamps are AI-extracted locators. Verify them against originals. Descriptions are labeled separately from source text. Large files need object storage and a worker before deployment to real users.
 - Public article parsing cannot read arbitrary authenticated, paywalled, or JavaScript-only social posts. It does not bypass access controls.
 - Edge overrides, automated reindexing, vector-index retrieval, favorites, and quantitative retrieval evaluation are not implemented.
-- MongoDB's free storage limit includes all users, assets, and indexes. Many 3 MB files will exhaust it before the item cap. R2 is the recommended later asset store.
 - The public demo persists only in browser storage. Export important work; clearing browser data removes it.
 
 ## Deployment

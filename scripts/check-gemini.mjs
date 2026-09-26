@@ -3,7 +3,7 @@ import path from "node:path";
 
 // Uses local credentials without printing them. The optional file is sent only to Google.
 const key = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const model = (process.env.GEMINI_MODEL || "gemini-3.8-flash").split(",")[0].trim();
 const args = process.argv.slice(2);
 async function call(endpoint, body) {
   const response = await fetch(
@@ -52,9 +52,9 @@ async function main() {
         "Usage: npm run gemini:check -- --video /path/to/short-video.mp4",
       );
     const metadata = await stat(filename);
-    if (metadata.size > 3000000 || !metadata.size)
+    if (metadata.size > 14000000 || !metadata.size)
       throw new Error(
-        "Choose a nonempty MP4/WebM smaller than 3 MB, matching the app limit.",
+        "Choose a nonempty MP4/WebM smaller than 14 MB, matching the app limit.",
       );
     const extension = path.extname(filename).toLowerCase();
     if (![".mp4", ".webm"].includes(extension))

@@ -16,11 +16,12 @@ export class PostgresStore {
     return result.rows[0]?.document;
   }
   async getAsset(ownerId: string, id: string) {
-    const result = await this.pool.query<{ asset: Buffer | null; mime: string | null }>(
-      "SELECT asset, mime FROM knowledge_items WHERE owner_id = $1 AND id = $2", [ownerId, id]);
+    // `asset` holds bytes from before files moved to object storage.
+    const result = await this.pool.query<{ asset_path: string | null; asset: Buffer | null; mime: string | null }>(
+      "SELECT asset_path, asset, mime FROM knowledge_items WHERE owner_id = $1 AND id = $2", [ownerId, id]);
     return result.rows[0];
   }
-  async insertItem(ownerId: string, item: KnowledgeItem, asset?: { buffer: Buffer; mime: string }) {
+  async insertItem(ownerId: string, item: KnowledgeItem, asset?: { path: string; mime: string }) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -31,8 +32,8 @@ export class PostgresStore {
       if (count.rows[0].count >= 200)
         throw new ApiError(409, "This prototype supports 200 items per library. Export or remove an item before adding another.");
       await client.query(
-        "INSERT INTO knowledge_items (owner_id, id, document, created_at, asset, mime) VALUES ($1, $2, $3::jsonb, $4, $5, $6)",
-        [ownerId, item.id, JSON.stringify({ ...item, hasAsset: Boolean(asset) }), item.createdAt, asset?.buffer ?? null, asset?.mime ?? null]);
+        "INSERT INTO knowledge_items (owner_id, id, document, created_at, asset_path, mime) VALUES ($1, $2, $3::jsonb, $4, $5, $6)",
+        [ownerId, item.id, JSON.stringify({ ...item, hasAsset: Boolean(asset) }), item.createdAt, asset?.path ?? null, asset?.mime ?? null]);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -49,8 +50,9 @@ export class PostgresStore {
     return result.rows[0]?.document;
   }
   async deleteItem(ownerId: string, id: string) {
-    const result = await this.pool.query("DELETE FROM knowledge_items WHERE owner_id = $1 AND id = $2", [ownerId, id]);
-    return Boolean(result.rowCount);
+    const result = await this.pool.query<{ asset_path: string | null }>(
+      "DELETE FROM knowledge_items WHERE owner_id = $1 AND id = $2 RETURNING asset_path", [ownerId, id]);
+    return result.rows[0];
   }
   async limitExpensiveRequests(ownerId: string) {
     // PostgreSQL has no MongoDB TTL index: expired windows are cleaned up on requests.

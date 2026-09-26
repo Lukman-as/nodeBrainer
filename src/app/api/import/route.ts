@@ -6,6 +6,7 @@ import { KnowledgeItem, segmentText } from "@/lib/knowledge";
 import { embedSegments, extractMedia } from "@/lib/gemini";
 import { extractArticle, validatePublicUrl } from "@/lib/safe-url";
 import { limitExpensiveRequests } from "@/lib/rate-limit";
+import { deleteAsset, uploadAsset } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 150;
@@ -17,12 +18,15 @@ const mediaTypes: Record<string, KnowledgeItem["type"]> = {
   "video/mp4": "video",
   "video/webm": "video",
 };
+// ponytail: files go to Gemini inline (base64, 20 MB request cap), so 14 MB is the ceiling.
+// Longer videos need a direct browser-to-storage upload plus the Gemini Files API.
+const MAX_FILE = 14_000_000;
 export async function POST(request: Request) {
   try {
     const ownerId = await requireOwner(request);
     await limitExpensiveRequests(ownerId);
     let item: KnowledgeItem;
-    let asset: { buffer: Buffer; mime: string } | undefined;
+    let asset: { path: string; mime: string } | undefined;
     const now = new Date().toISOString();
     const base = {
       id: randomUUID(),
@@ -40,9 +44,9 @@ export async function POST(request: Request) {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.length;
-        if (size > 3_200_000) {
+        if (size > MAX_FILE + 200_000) {
           await reader.cancel();
-          throw new ApiError(413, "Choose a file smaller than 3 MB.");
+          throw new ApiError(413, "Choose a file smaller than 14 MB.");
         }
         chunks.push(value);
       }
@@ -50,8 +54,8 @@ export async function POST(request: Request) {
         headers: { "Content-Type": request.headers.get("content-type")! },
       }).formData();
       const file = form.get("file");
-      if (!(file instanceof File) || !file.size || file.size > 3_000_000)
-        throw new ApiError(400, "Choose a nonempty file smaller than 3 MB.");
+      if (!(file instanceof File) || !file.size || file.size > MAX_FILE)
+        throw new ApiError(400, "Choose a nonempty file smaller than 14 MB.");
       const buffer = Buffer.from(await file.arrayBuffer());
       if (/\.(md|markdown|txt)$/i.test(file.name)) {
         const text = buffer.toString("utf8");
@@ -110,7 +114,8 @@ export async function POST(request: Request) {
           content: extracted.segments.map((s) => s.text).join("\n\n"),
           hasAsset: true,
         };
-        asset = { buffer, mime: file.type };
+        asset = { path: base.id, mime: file.type };
+        await uploadAsset(asset.path, buffer, file.type);
       }
     } else {
       const input = z
@@ -146,8 +151,13 @@ export async function POST(request: Request) {
         };
       }
     }
-    item.segments = await embedSegments(item.segments);
-    await insertItem(ownerId, item, asset);
+    try {
+      item.segments = await embedSegments(item.segments);
+      await insertItem(ownerId, item, asset);
+    } catch (error) {
+      if (asset) await deleteAsset(asset.path).catch(() => {});
+      throw error;
+    }
     return json({ item: withoutVectors(item) }, 201);
   } catch (error) {
     return apiError(error);

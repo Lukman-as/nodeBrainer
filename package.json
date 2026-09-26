@@ -9,8 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "tsc --project tsconfig.test.json && node --test .test-build/tests/*.test.js",
-    "db:setup": "node --env-file=.env.local scripts/setup-database.mjs",
-    "gemini:check": "node --env-file=.env.local scripts/check-gemini.mjs"
+    "db:setup": "node --env-file=.env scripts/setup-database.mjs",
+    "gemini:check": "node --env-file=.env scripts/check-gemini.mjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "4.30.0",

@@ -1318,7 +1318,7 @@ export function KnowledgeWorkspace({
                     <strong>A little knowledge, in any format.</strong>
                     <span>
                       {live
-                        ? "Markdown, PDF, image, or short video · up to 3 MB"
+                        ? "Markdown, PDF, image, or short video · up to 14 MB"
                         : "Try a Markdown or text file in this demo"}
                     </span>
                     <input
