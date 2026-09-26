@@ -274,13 +274,16 @@ export function GraphScene({
           8,
           Math.min(event.clientX - box.left + 12, box.width - 200),
         ),
-        y: Math.max(8, Math.min(event.clientY - box.top + 12, box.height - 85)),
+        y: Math.max(8, Math.min(event.clientY - box.top + 12, box.height - 125)),
       };
       if (node) {
         const item = node.userData.item;
+        const excerpt = item.content.trim();
         setHover({
           title: item.title,
-          detail: `${item.type.toUpperCase()} · ${counts.get(item.id)} connections · click to open`,
+          detail: excerpt
+            ? `${excerpt.slice(0, 180)}${excerpt.length > 180 ? "…" : ""}`
+            : "No content preview available.",
           ...coordinates,
         });
       } else if (edge) {

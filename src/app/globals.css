@@ -2531,6 +2531,7 @@ select:focus-visible {
 }
 .neural-tooltip span {
   display: block;
+  white-space: pre-line;
   font-size: 8px;
   line-height: 1.7;
   color: #98b2a3;
