@@ -1,0 +1,39 @@
+{
+  "name": "hack-the-hill-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --project tsconfig.test.json && node --test .test-build/tests/*.test.js",
+    "db:setup": "node --env-file=.env.local scripts/setup-database.mjs",
+    "gemini:check": "node --env-file=.env.local scripts/check-gemini.mjs"
+  },
+  "dependencies": {
+    "@auth0/nextjs-auth0": "4.30.0",
+    "cheerio": "^1.2.0",
+    "ipaddr.js": "^2.5.0",
+    "lucide-react": "^0.468.0",
+    "next": "16.3.6",
+    "pg": "^8.23.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "server-only": "^0.0.1",
+    "three": "^0.186.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.186.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.3.6",
+    "prettier": "^3.9.9",
+    "typescript": "^5.9.0"
+  }
+}
