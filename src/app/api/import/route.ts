@@ -8,7 +8,7 @@ import { extractArticle, validatePublicUrl } from "@/lib/safe-url";
 import { limitExpensiveRequests } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 150;
 const mediaTypes: Record<string, KnowledgeItem["type"]> = {
   "application/pdf": "pdf",
   "image/png": "image",
