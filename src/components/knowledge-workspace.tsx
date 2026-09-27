@@ -2,30 +2,27 @@
 /* eslint-disable @next/next/no-img-element -- Private image endpoints need browser session cookies. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
+  Activity,
   ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Check,
   ChevronDown,
-  FileText,
   FolderOpen,
-  ImageIcon,
+  History,
   Link2,
   LoaderCircle,
   LogIn,
   Network,
   Plus,
   Search,
-  Settings2,
   ShieldCheck,
-  Sparkles,
-  Sprout,
   Trash2,
   Upload,
-  Video,
   X,
 } from "lucide-react";
 import { z } from "zod";
@@ -51,21 +48,30 @@ import {
   extractiveAnswer,
 } from "@/lib/answers";
 import { locatorSchema, noteInput } from "@/lib/validation";
+import { icons, typeLabels, type SearchHistoryEntry } from "./item-meta";
+import { RelatedMemories } from "./related-memories";
+import { RecentActivity, SearchHistory } from "./activity-pages";
+import { ThemeToggle } from "./theme-toggle";
 
-const typeLabels: Record<ItemType, string> = {
-  note: "Note",
-  pdf: "PDF",
-  image: "Image",
-  link: "Article",
-  video: "Video",
+type View = "memory" | "activity" | "history" | "library";
+const viewTitles: Record<View, string> = {
+  memory: "Memory Map",
+  activity: "Recent Activity",
+  history: "Search History",
+  library: "My Library",
 };
-const icons = {
-  note: FileText,
-  pdf: FileText,
-  image: ImageIcon,
-  link: Link2,
-  video: Video,
-};
+const historySchema = z
+  .array(
+    z.object({
+      id: z.string(),
+      query: z.string().max(500),
+      at: z.string(),
+      resultCount: z.number(),
+      topItemId: z.string().optional(),
+      mode: z.string(),
+    }),
+  )
+  .max(50);
 const cacheSchema = z
   .array(
     z.object({
@@ -132,7 +138,13 @@ export function KnowledgeWorkspace({
     [tag, setTag] = useState("");
   const [selectedId, setSelectedId] = useState("attention"),
     [detail, setDetail] = useState(false);
-  const [view, setView] = useState<"library" | "graph">("library");
+  const [view, setView] = useState<View>("memory");
+  const [relatedTab, setRelatedTab] = useState<"search" | "selected">(
+    "selected",
+  );
+  const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
+  // Per-browser convenience; kept apart for the demo and the private workspace.
+  const historyKey = `nodebrainer-search-history-${live ? "private" : "demo"}`;
   const [query, setQuery] = useState(""),
     [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<SearchResponse | null>(null),
@@ -153,6 +165,12 @@ export function KnowledgeWorkspace({
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      try {
+        const stored = localStorage.getItem(historyKey);
+        if (stored) setHistory(historySchema.parse(JSON.parse(stored)));
+      } catch {
+        // Unreadable or unavailable history starts empty.
+      }
       if (live) {
         try {
           const data = await requestJson("/api/items");
@@ -190,7 +208,7 @@ export function KnowledgeWorkspace({
       cancelled = true;
       searchRef.current?.abort();
     };
-  }, [live, mock]);
+  }, [live, mock, historyKey]);
   useEffect(() => {
     if (!live && !mock && hydrated) {
       try {
@@ -226,6 +244,24 @@ export function KnowledgeWorkspace({
   const neighbors = edges
     .filter((e) => e.source === selectedId || e.target === selectedId)
     .slice(0, 7);
+  // Related Memories appears on the Memory Map only once a search is running or done.
+  const relatedOpen = view === "memory" && (searching || Boolean(results));
+  // Map emphasis: the explained discovery path, else the current search's top results.
+  const mapHighlights = useMemo(
+    () =>
+      explanation?.path ??
+      (relatedTab === "search" && results
+        ? results.results.slice(0, 8).map((r) => r.itemId)
+        : undefined),
+    [explanation, relatedTab, results],
+  );
+  // Labeled as suggestions on the Search History page, never shown as past searches.
+  const historySuggestions = [
+    ...(live
+      ? []
+      : ["what is a transformer architecture", "conditional probability"]),
+    ...allTags.slice(0, 4),
+  ].slice(0, 5);
   function resetSearch() {
     searchRef.current?.abort();
     searchGeneration.current++;
@@ -247,6 +283,14 @@ export function KnowledgeWorkspace({
       setServerEdges(data.edges);
     }
   }
+  function saveHistory(next: SearchHistoryEntry[]) {
+    setHistory(next);
+    try {
+      localStorage.setItem(historyKey, JSON.stringify(next));
+    } catch {
+      // History is a convenience; searching still works without storage.
+    }
+  }
   async function search(value = query) {
     if (!value.trim()) {
       resetSearch();
@@ -258,7 +302,9 @@ export function KnowledgeWorkspace({
     searchRef.current = controller;
     setSearching(true);
     setDetail(false);
-    setView("library");
+    // Library searches stay in the library; every other search opens on the Memory Map.
+    setView((current) => (current === "library" ? "library" : "memory"));
+    setRelatedTab("search");
     setError("");
     setQuery(value);
     try {
@@ -278,6 +324,21 @@ export function KnowledgeWorkspace({
             : extractiveAnswer(value, answerSources(filtered, data)),
         );
         setSearchedQuery(value);
+        saveHistory(
+          [
+            {
+              id: crypto.randomUUID(),
+              query: value.trim(),
+              at: new Date().toISOString(),
+              resultCount: data.results.length,
+              topItemId: data.results[0]?.itemId,
+              mode: data.mode,
+            },
+            ...history.filter(
+              (h) => h.query.toLowerCase() !== value.trim().toLowerCase(),
+            ),
+          ].slice(0, 50),
+        );
       }
     } catch (e) {
       if (
@@ -401,7 +462,6 @@ export function KnowledgeWorkspace({
       resetSearch();
       setSelectedId(item.id);
       setDetail(true);
-      setView("library");
       setModal(null);
       setNotice(editing ? "Your note is saved." : "Added to your library.");
     } catch (e) {
@@ -432,29 +492,127 @@ export function KnowledgeWorkspace({
     }
   }
 
+  const explanationView = explanation && (
+    <div className="explanation">
+      <div className="eyebrow">WHY THIS RESULT</div>
+      <h3>
+        {explanation.discovery === "graph"
+          ? "Found through a connection."
+          : "A direct match."}
+      </h3>
+      <p>
+        {explanation.discovery === "graph"
+          ? "This is the path search followed to find it."
+          : "This passage matched your search directly."}
+      </p>
+      <ol>
+        {explanation.path.map((id) => (
+          <li key={id}>
+            <button onClick={() => selectItem(id)}>
+              {items.find((i) => i.id === id)?.title}
+            </button>
+          </li>
+        ))}
+      </ol>
+      {explanation.edges.map((edge, i) => (
+        <div className="edge-evidence" key={i}>
+          <strong>
+            {edgeAppearance(edge.weight).label} connection:{" "}
+            {edge.weight.toFixed(2)}
+          </strong>
+          <span>
+            {edge.explicit ? "Explicit [[link]] · " : ""}
+            {edge.basis === "semantic"
+              ? `Meaning match ${Math.round(edge.semantic * 100)}%`
+              : `Shared wording ${Math.round(edge.lexical * 100)}%`}
+            {edge.sharedTags.length
+              ? ` · Shared: ${edge.sharedTags.join(", ")}`
+              : ""}
+          </span>
+        </div>
+      ))}
+      <small>Scores are ranking signals, not accuracy probabilities.</small>
+      <button className="text-action" onClick={() => setExplanation(null)}>
+        Close explanation
+      </button>
+    </div>
+  );
+  const panelFooter = (
+    <div className="panel-footer">
+      <ShieldCheck size={13} />
+      {live
+        ? "Only your account can access this library."
+        : "Demo content stays in this browser."}
+    </div>
+  );
+
   return (
     <div className="app-shell lattice-app">
       <aside className="sidebar">
-        <Link className="brand" href={live ? "/workspace" : "/"} prefetch={false}>
+        <Link
+          className="brand"
+          href={live ? "/workspace" : "/"}
+          prefetch={false}
+        >
           <span className="brand-mark">
-            <Network size={23} />
+            {/* Decorative: the link's name is the NodeBrainer text beside it. */}
+            <Image src="/nodebrainer-icon.png" alt="" width={36} height={36} />
           </span>
-          lattice<span className="brand-period">.</span>
+          <span className="brand-name">
+            Node<span className="brand-accent">Brainer</span>
+          </span>
         </Link>
-        <div className="workspace-label">
-          <span className="workspace-avatar">
-            {live ? name?.[0] || "Y" : "D"}
-          </span>
-          <div>
-            {live ? "My knowledge space" : "The curiosity collection"}
-            <small>{live ? "Private workspace" : "Interactive demo"}</small>
-          </div>
-          <ChevronDown size={14} />
-        </div>
-        <p className="nav-label">YOUR WORKSPACE</p>
-        <nav aria-label="Workspace">
+        <nav aria-label="Workspace" className="sidebar-nav">
+          <p className="nav-label">MEMORY</p>
+          <button
+            className={`nav-item ${view === "memory" ? "active" : ""}`}
+            aria-current={view === "memory" ? "page" : undefined}
+            onClick={() => {
+              setView("memory");
+              setDetail(false);
+              resetSearch();
+            }}
+          >
+            <Image
+              className="nav-image-icon"
+              src="/nodebrainer-icon.png"
+              alt=""
+              width={22}
+              height={22}
+            />
+            Memory Map
+          </button>
+          <button
+            className={`nav-item ${view === "activity" ? "active" : ""}`}
+            aria-current={view === "activity" ? "page" : undefined}
+            onClick={() => {
+              setView("activity");
+              setDetail(false);
+            }}
+          >
+            <Activity size={18} />
+            Recent Activity
+          </button>
+          <button
+            className={`nav-item ${view === "history" ? "active" : ""}`}
+            aria-current={view === "history" ? "page" : undefined}
+            onClick={() => {
+              setView("history");
+              setDetail(false);
+            }}
+          >
+            <History size={18} />
+            Search History
+            {history.length > 0 && (
+              <span className="nav-count">{history.length}</span>
+            )}
+          </button>
+          <p className="nav-label">LIBRARY</p>
           <button
             className={`nav-item ${view === "library" && type === "all" ? "active" : ""}`}
+            aria-current={
+              view === "library" && type === "all" ? "page" : undefined
+            }
             onClick={() => {
               setView("library");
               setType("all");
@@ -464,28 +622,16 @@ export function KnowledgeWorkspace({
             }}
           >
             <FolderOpen size={18} />
-            My library<span className="nav-count">{items.length}</span>
-          </button>
-          <button
-            className={`nav-item ${view === "graph" ? "active" : ""}`}
-            onClick={() => {
-              setView("graph");
-              setDetail(false);
-              resetSearch();
-            }}
-          >
-            <Network size={18} />
-            Connections
+            My Library<span className="nav-count">{items.length}</span>
           </button>
         </nav>
-        <div className="type-navigation">
-          <p className="nav-label">CONTENT TYPES</p>
+        <div className="type-navigation library-subnav">
           {(Object.keys(typeLabels) as ItemType[]).map((t) => {
             const Icon = icons[t];
             return (
               <button
                 key={t}
-                className={`nav-item ${type === t ? "active" : ""}`}
+                className={`nav-item ${view === "library" && type === t ? "active" : ""}`}
                 onClick={() => {
                   setType(t);
                   setView("library");
@@ -501,19 +647,6 @@ export function KnowledgeWorkspace({
               </button>
             );
           })}
-        </div>
-        <div className="sidebar-bottom">
-          <span className="small-orbit">
-            <Sprout size={21} />
-          </span>
-          <strong>Let your ideas find each other.</strong>
-          <p>
-            A second brain.
-            <br />A new perspective.
-          </p>
-          <Link href="/setup" className="edition" prefetch={false}>
-            WORKSPACE SETTINGS <ArrowUpRight size={12} />
-          </Link>
         </div>
         <div className="profile">
           <span className="avatar">{live ? name?.[0] || "Y" : "D"}</span>
@@ -541,9 +674,17 @@ export function KnowledgeWorkspace({
           <div>
             <span className="breadcrumb">Workspace</span>
             <span className="slash">/</span>
-            {view === "graph" ? "Connections" : "My library"}
+            {viewTitles[view]}
           </div>
           <div className="topbar-actions">
+            <button
+              className="button dark topbar-add"
+              onClick={() => openModal("note")}
+            >
+              <Plus size={16} />
+              Add content
+            </button>
+            <ThemeToggle />
             <span className="preview-pill">
               <span />
               {live ? "Private library" : "Local demo"}
@@ -553,7 +694,7 @@ export function KnowledgeWorkspace({
               aria-label="Export library as JSON"
               onClick={() =>
                 download(
-                  "lattice-library.json",
+                  "nodebrainer-library.json",
                   JSON.stringify(items, null, 2),
                   "application/json",
                 )
@@ -561,27 +702,46 @@ export function KnowledgeWorkspace({
             >
               <ArrowDownToLine size={17} />
             </button>
-            <Link className="icon-button" href="/setup" aria-label="Settings" prefetch={false}>
-              <Settings2 size={17} />
+            <Link className="profile-button" href="/setup" prefetch={false}>
+              <Image
+                src="/profile-icon.png"
+                alt="Profile and workspace settings"
+                width={32}
+                height={32}
+              />
             </Link>
           </div>
         </header>
-        <div className="knowledge-layout">
-          <div className="library-panel">
-            <div className="page-heading">
+        <div
+          className={`knowledge-layout ${
+            view === "memory" && relatedOpen ? "related-open" : "full-width"
+          }`}
+        >
+          <div className={`library-panel view-${view}`}>
+            <div
+              className={`page-heading ${view === "memory" ? "memory-hero" : ""}`}
+            >
               <div>
-                <div className="eyebrow">YOUR PERSONAL KNOWLEDGE GARDEN</div>
+                <div className="eyebrow">{viewTitles[view].toUpperCase()}</div>
                 <h1>
-                  {view === "graph"
-                    ? "Everything is connected."
-                    : "Collect a little. Connect a lot."}
+                  {view === "memory"
+                    ? "Find what you worked on."
+                    : view === "activity"
+                      ? "Pick up where you left off."
+                      : view === "history"
+                        ? "Your recent searches."
+                        : "Everything you’ve saved."}
                 </h1>
-                <p>All your knowledge, with the dots connected.</p>
+                <p>
+                  {view === "memory"
+                    ? "Search your notes, files, and past work."
+                    : view === "activity"
+                      ? "Your recent files, notes, and searches."
+                      : view === "history"
+                        ? "Find something you looked up before."
+                        : "Notes, files, links, and media in one place."}
+                </p>
               </div>
-              <button className="button dark" onClick={() => openModal("note")}>
-                <Plus size={16} />
-                Add content
-              </button>
             </div>
             {!live && (
               <div className="demo-strip">
@@ -614,138 +774,77 @@ export function KnowledgeWorkspace({
                 </button>
               </div>
             )}
-            <form
-              className="search-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void search();
-              }}
-            >
-              <Search size={19} />
-              <input
-                aria-label="Search your knowledge"
-                placeholder="Ask your library a question…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                maxLength={500}
-              />
-              {query && (
-                <button
-                  className="icon-button"
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => {
-                    setQuery("");
-                    resetSearch();
-                  }}
-                >
-                  <X size={15} />
-                </button>
-              )}
-              <button className="search-submit" disabled={searching}>
-                {searching ? (
-                  <LoaderCircle size={17} className="spin" />
-                ) : (
-                  <ArrowRight size={18} />
-                )}
-                <span className="sr-only">Search</span>
-              </button>
-            </form>
-            {live && geminiConfigured && (
-              <p className="answer-privacy">
-                Your question and retrieved passages are sent to Google Gemini
-                to compose the answer.
-              </p>
-            )}
-            {!detail && !results && !searching && view === "library" && (
-              <section className="discovery-banner">
-                <div>
-                  <span className="hero-kicker">
-                    <Sparkles size={12} /> A LITTLE SERENDIPITY
-                  </span>
-                  <h2>
-                    The next insight is
-                    <br />
-                    already in your library.
-                  </h2>
-                  <p>
-                    Find the passage. Follow the thread.
-                    <br />
-                    See something you hadn’t seen before.
-                  </p>
+            {(view === "memory" || view === "library") && (
+              <form
+                className={`search-form ${view === "memory" ? "memory-search" : ""}`}
+                role="search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void search();
+                }}
+              >
+                <Search size={view === "memory" ? 22 : 19} />
+                <input
+                  aria-label={
+                    view === "memory"
+                      ? "Search memory"
+                      : "Search your knowledge"
+                  }
+                  placeholder={
+                    view === "memory"
+                      ? "What are you looking for?"
+                      : "Ask your library a question…"
+                  }
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  maxLength={500}
+                />
+                {query && (
                   <button
-                    onClick={() => void search("conditional probability")}
-                    className="discovery-link"
+                    className="icon-button"
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => {
+                      setQuery("");
+                      resetSearch();
+                    }}
                   >
-                    Try a connected search <ArrowUpRight size={14} />
+                    <X size={15} />
                   </button>
-                </div>
-                <div className="banner-art" aria-hidden="true">
-                  <div className="idea-line l1" />
-                  <div className="idea-line l2" />
-                  <div className="idea-line l3" />
-                  <div className="idea-node central">
-                    <Network size={28} />
-                  </div>
-                  <div className="idea-node n1">
-                    <FileText size={18} />
-                  </div>
-                  <div className="idea-node n2">
-                    <Video size={19} />
-                  </div>
-                  <div className="idea-node n3">
-                    <ImageIcon size={18} />
-                  </div>
-                  <span className="idea-caption">a new way to see it</span>
-                </div>
-              </section>
+                )}
+                <button className="search-submit" disabled={searching}>
+                  {searching ? (
+                    <LoaderCircle size={17} className="spin" />
+                  ) : (
+                    <ArrowRight size={18} />
+                  )}
+                  <span className="sr-only">Search</span>
+                </button>
+              </form>
             )}
-            {loading || searching ? (
+            {live &&
+              geminiConfigured &&
+              (view === "memory" || view === "library") && (
+                <p className="answer-privacy">
+                  Your question and retrieved passages are sent to Google Gemini
+                  to compose the answer.
+                </p>
+              )}
+            {loading ? (
               <div className="empty-state">
                 <LoaderCircle className="spin" />
-                {searching
-                  ? "Reading your sources and composing an answer…"
-                  : "Opening your library…"}
+                Opening your library…
               </div>
-            ) : view === "graph" ? (
-              <section className="graph-workspace">
-                <div className="section-heading">
-                  <h2>Your connected knowledge</h2>
-                  <span>{edges.length} CONNECTIONS</span>
-                </div>
-                <KnowledgeGraph
-                  large
-                  items={items}
-                  edges={edges}
-                  selectedId={selectedId || items[0]?.id || ""}
-                  onSelect={(id) => {
-                    selectItem(id);
-                    setView("library");
-                  }}
-                />
-                <p>
-                  Explore your whole library in 3D. Stronger connections are
-                  thicker and brighter; weak connections are dashed. Hover an
-                  edge to inspect its actual evidence. The faint brain contour
-                  is decorative.
-                </p>
-                <div className="graph-item-picker">
-                  {items.map((item) => (
-                    <button
-                      key={item.id}
-                      className={item.id === selectedId ? "selected" : ""}
-                      onClick={() => setSelectedId(item.id)}
-                    >
-                      {item.title}
-                    </button>
-                  ))}
-                </div>
-              </section>
             ) : detail && selected ? (
               <section className="item-detail">
                 <button className="back-link" onClick={() => setDetail(false)}>
                   <ArrowLeft size={15} />
-                  Back to {answer ? "answer" : "library"}
+                  Back to{" "}
+                  {view === "library"
+                    ? answer
+                      ? "answer"
+                      : "library"
+                    : viewTitles[view]}
                 </button>
                 <div className="detail-heading">
                   <span className={`type-badge ${selected.type}`}>
@@ -836,6 +935,7 @@ export function KnowledgeWorkspace({
                     against the original.
                   </div>
                 )}
+                {view === "library" && explanationView}
                 <div className="segments">
                   {selected.segments.map((s) => (
                     <article
@@ -881,7 +981,131 @@ export function KnowledgeWorkspace({
                     </article>
                   ))}
                 </div>
+                {view === "library" && neighbors.length > 0 && (
+                  <div className="detail-connections">
+                    <h3>Connected to this</h3>
+                    {neighbors.map((edge) => {
+                      const id =
+                          edge.source === selected.id
+                            ? edge.target
+                            : edge.source,
+                        item = items.find((i) => i.id === id);
+                      if (!item) return null;
+                      const Icon = icons[item.type];
+                      return (
+                        <button
+                          className="related-item"
+                          key={id}
+                          onClick={() => selectItem(id)}
+                        >
+                          <span className={`content-icon ${item.type}`}>
+                            <Icon size={15} />
+                          </span>
+                          <span>
+                            <strong>{item.title}</strong>
+                            <small>
+                              {typeLabels[item.type]} ·{" "}
+                              {edgeAppearance(edge.weight).label} ·{" "}
+                              {edge.explicit
+                                ? "Explicit link"
+                                : edge.basis === "semantic"
+                                  ? "Semantic connection"
+                                  : "Text / tag connection"}
+                            </small>
+                          </span>
+                          <span className="edge-score">
+                            {edge.weight.toFixed(2)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
+            ) : view === "memory" ? (
+              <>
+                <section className="memory-map" aria-label="Memory Map">
+                  <div className="section-heading">
+                    <h2>Your memory map</h2>
+                    <span>
+                      {items.length} MEMORIES · {edges.length} CONNECTIONS
+                    </span>
+                  </div>
+                  {searching && (
+                    <div className="memory-status" role="status">
+                      <LoaderCircle size={15} className="spin" />
+                      Reading your sources and composing an answer…
+                    </div>
+                  )}
+                  <KnowledgeGraph
+                    large
+                    items={items}
+                    edges={edges}
+                    selectedId={selectedId || items[0]?.id || ""}
+                    onSelect={(id) => {
+                      if (!relatedOpen) return selectItem(id);
+                      setSelectedId(id);
+                      setExplanation(null);
+                      setRelatedTab("selected");
+                    }}
+                    highlighted={mapHighlights}
+                  />
+                  <p className="memory-map-hint">
+                    {relatedOpen
+                      ? "Select a memory to see what’s related to it."
+                      : "Click a memory to open it, or search to see what’s related."}{" "}
+                    Stronger connections are thicker and brighter; weak
+                    connections are dashed. The faint brain contour is
+                    decorative.
+                  </p>
+                </section>
+                {answer && !searching && (
+                  <AnswerPanel
+                    answer={answer}
+                    query={searchedQuery}
+                    onSource={(source) => {
+                      selectItem(source.itemId);
+                      setExplanation(
+                        results?.results.find(
+                          (result) =>
+                            result.itemId === source.itemId &&
+                            result.segmentId === source.segmentId,
+                        ) || null,
+                      );
+                    }}
+                  />
+                )}
+              </>
+            ) : view === "activity" ? (
+              <RecentActivity
+                items={items}
+                edges={edges}
+                history={history}
+                onOpen={selectItem}
+                onSearch={(q) => {
+                  setView("memory");
+                  void search(q);
+                }}
+              />
+            ) : view === "history" ? (
+              <SearchHistory
+                items={items}
+                history={history}
+                suggestions={historySuggestions}
+                onSearch={(q) => {
+                  setView("memory");
+                  void search(q);
+                }}
+                onRemove={(id) =>
+                  saveHistory(history.filter((h) => h.id !== id))
+                }
+                onClear={() => saveHistory([])}
+              />
+            ) : searching ? (
+              <div className="empty-state">
+                <LoaderCircle className="spin" />
+                Reading your sources and composing an answer…
+              </div>
             ) : answer ? (
               <AnswerPanel
                 answer={answer}
@@ -943,6 +1167,7 @@ export function KnowledgeWorkspace({
                     <ChevronDown size={12} />
                   </span>
                 </div>
+                {explanationView}
                 {results && (
                   <div className="search-meta">
                     {results.mode} · {results.expanded} nodes explored ·{" "}
@@ -1031,12 +1256,10 @@ export function KnowledgeWorkspace({
                   (!results && !filtered.length)) && (
                   <div className="empty-state">
                     <Search size={26} />
-                    <h3>
-                      {results ? "No matches yet." : "Room for your next idea."}
-                    </h3>
+                    <h3>{results ? "No matches." : "Nothing saved yet."}</h3>
                     <p>
                       {results
-                        ? "Try a specific term, clear a filter, or add more knowledge."
+                        ? "Try a different word, or clear a filter."
                         : "Add a note, a file, or a link to get started."}
                     </p>
                     <button
@@ -1049,7 +1272,7 @@ export function KnowledgeWorkspace({
                   </div>
                 )}
                 <div className="quick-add">
-                  <span>Keep something worth coming back to.</span>
+                  <span>Add more:</span>
                   <button onClick={() => openModal("file")}>
                     <Upload size={14} />
                     Upload a file
@@ -1063,149 +1286,40 @@ export function KnowledgeWorkspace({
             )}
             <footer>
               <span>
-                lattice. <span>A little room for connected thinking.</span>
+                NodeBrainer <span>Your second mind.</span>
               </span>
               <span>
                 {items.length} ITEMS · {edges.length} CONNECTIONS
               </span>
             </footer>
           </div>
-          <aside className="connections-panel">
-            <div className="connections-title">
-              <Network size={16} />
-              <h2>Connected thinking</h2>
-              <span className="status-dot" />
-            </div>
-            <p className="panel-subtitle">A wider view of what you know.</p>
-            <KnowledgeGraph
+          {view === "memory" ? (
+            <RelatedMemories
+              open={relatedOpen}
+              onClose={() => {
+                setQuery("");
+                resetSearch();
+              }}
               items={items}
               edges={edges}
-              selectedId={selectedId || items[0]?.id || ""}
-              onSelect={selectItem}
-              highlighted={explanation?.path}
+              selectedId={selectedId}
+              results={results}
+              searchedQuery={searchedQuery}
+              searching={searching}
+              tab={relatedTab}
+              onTab={(tab) => {
+                setRelatedTab(tab);
+                setExplanation(null);
+              }}
+              onPick={(id, result) => {
+                setSelectedId(id);
+                setExplanation(result ?? null);
+              }}
+              onOpen={selectItem}
+              explanation={explanationView || undefined}
+              footer={panelFooter}
             />
-            <div className="graph-legend">
-              <span>Hover nodes and edges to inspect</span>
-            </div>
-            {explanation ? (
-              <div className="explanation">
-                <div className="eyebrow">FOLLOW THE THREAD</div>
-                <h3>
-                  {explanation.discovery === "graph"
-                    ? "A connection worth exploring."
-                    : "A direct match."}
-                </h3>
-                <p>
-                  {explanation.discovery === "graph"
-                    ? "This is the actual path used to discover the item."
-                    : "This passage matched your query through keyword overlap or enabled semantic retrieval."}
-                </p>
-                <ol>
-                  {explanation.path.map((id) => (
-                    <li key={id}>
-                      <button onClick={() => selectItem(id)}>
-                        {items.find((i) => i.id === id)?.title}
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-                {explanation.edges.map((edge, i) => (
-                  <div className="edge-evidence" key={i}>
-                    <strong>
-                      {edgeAppearance(edge.weight).label} connection:{" "}
-                      {edge.weight.toFixed(2)}
-                    </strong>
-                    <span>
-                      {edge.explicit ? "Explicit [[link]] · " : ""}
-                      {edge.basis === "semantic"
-                        ? `Meaning match ${Math.round(edge.semantic * 100)}%`
-                        : `Shared wording ${Math.round(edge.lexical * 100)}%`}
-                      {edge.sharedTags.length
-                        ? ` · Shared: ${edge.sharedTags.join(", ")}`
-                        : ""}
-                    </span>
-                  </div>
-                ))}
-                <small>
-                  Scores are ranking signals, not accuracy probabilities.
-                </small>
-                <button
-                  className="text-action"
-                  onClick={() => setExplanation(null)}
-                >
-                  Close explanation
-                </button>
-              </div>
-            ) : answer ? (
-              <div className="insight-note">
-                <Sparkles size={17} />
-                <h3>One answer. A connected foundation.</h3>
-                <p>
-                  Open a numbered citation to inspect the passage behind your
-                  answer, or explore the graph above.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="related-heading">
-                  <h3>In this neighborhood</h3>
-                  <span>{neighbors.length}</span>
-                </div>
-                {neighbors.map((edge) => {
-                  const id =
-                      edge.source === selectedId ? edge.target : edge.source,
-                    item = items.find((i) => i.id === id);
-                  if (!item) return null;
-                  const Icon = icons[item.type];
-                  return (
-                    <button
-                      className="related-item"
-                      key={id}
-                      onClick={() => selectItem(id)}
-                    >
-                      <span className={`content-icon ${item.type}`}>
-                        <Icon size={15} />
-                      </span>
-                      <span>
-                        <strong>{item.title}</strong>
-                        <small>
-                          {edgeAppearance(edge.weight).label} ·{" "}
-                          {edge.explicit
-                            ? "Explicit link"
-                            : edge.basis === "semantic"
-                              ? "Semantic connection"
-                              : "Text / tag connection"}
-                        </small>
-                      </span>
-                      <span className="edge-score">
-                        {edge.weight.toFixed(2)}
-                      </span>
-                    </button>
-                  );
-                })}
-                {!neighbors.length && (
-                  <p className="panel-subtitle">
-                    Add shared tags or [[links]] to connect this item with your
-                    library.
-                  </p>
-                )}
-                <div className="insight-note">
-                  <Sparkles size={17} />
-                  <h3>Follow your curiosity.</h3>
-                  <p>
-                    A useful idea doesn’t always match your exact words.
-                    Sometimes, it’s one connection away.
-                  </p>
-                </div>
-              </>
-            )}
-            <div className="panel-footer">
-              <ShieldCheck size={13} />
-              {live
-                ? "Only your account can access this library."
-                : "Demo content stays in this browser."}
-            </div>
-          </aside>
+          ) : null}
         </div>
       </main>
       <dialog
@@ -1227,13 +1341,15 @@ export function KnowledgeWorkspace({
       >
         <div className="dialog-heading">
           <div>
-            <span className="eyebrow">MAKE SPACE FOR AN IDEA</span>
+            <span className="eyebrow">
+              {deleteId ? "REMOVE" : editing ? "EDIT NOTE" : "ADD CONTENT"}
+            </span>
             <h2>
               {deleteId
                 ? "Remove this item?"
                 : editing
-                  ? "A little room to think."
-                  : "Add to your knowledge."}
+                  ? "Edit your note."
+                  : "Add to your library."}
             </h2>
           </div>
           <button
@@ -1298,7 +1414,7 @@ export function KnowledgeWorkspace({
                       name="title"
                       required
                       maxLength={180}
-                      placeholder="What’s on your mind?"
+                      placeholder="Title"
                       defaultValue={editing?.title}
                     />
                   </label>
@@ -1326,7 +1442,7 @@ export function KnowledgeWorkspace({
                 <>
                   <label className="upload-zone">
                     <Upload size={28} />
-                    <strong>A little knowledge, in any format.</strong>
+                    <strong>Choose a file to upload.</strong>
                     <span>
                       {live
                         ? "Markdown, PDF, image, or short video · up to 14 MB"

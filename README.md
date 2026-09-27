@@ -17,7 +17,7 @@ Open **http://localhost:3000**. No API keys are needed for the local demo.
 
 - Create/edit/delete notes, import `.md`/`.txt`, filter types/topics, and export Markdown or a library JSON snapshot.
 - Ask **what is a transformer architecture**. The question box returns one answer card with source citations. Without Gemini it is explicitly labeled an extractive preview.
-- Open **Connections** for the interactive 3D knowledge brain: drag to orbit, hover for details, and filter edges by strength.
+- The app opens on the **Memory Map**, the interactive 3D knowledge brain: drag to orbit, hover for details, filter edges by strength, and search it with “What are you trying to remember?”. **Recent Activity**, **Search History**, and **My Library** are in the sidebar.
 - Select graph nodes to open related content.
 - Demo edits are stored in this browser. Sample PDF/image/video/article entries contain illustrative excerpts, not attached originals. Demo search uses keywords, explicit links, and tags; it does not claim to use an AI model.
 

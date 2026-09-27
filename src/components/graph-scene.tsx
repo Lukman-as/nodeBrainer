@@ -13,12 +13,38 @@ import {
 } from "lucide-react";
 import { edgeAppearance, layoutGraph } from "@/lib/graph-layout";
 import type { GraphProps } from "./knowledge-graph";
-const colors = {
-  note: "#b8e89f",
-  pdf: "#e7b390",
-  image: "#c2a5f1",
-  video: "#90c7f4",
-  link: "#e3d08d",
+import { useTheme } from "./theme-toggle";
+const palettes = {
+  dark: {
+    background: "#0b0913",
+    contour: "#8b5cf6",
+    nodes: {
+      note: "#b69cff",
+      pdf: "#f0ab8f",
+      image: "#86e3c8",
+      video: "#8fb8f7",
+      link: "#ecc97c",
+    },
+    // edgeAppearance() colours are tuned for dark; light mode deepens them for contrast.
+    edges: {} as Record<string, string>,
+  },
+  // Light mode keeps a deep green-black canvas with the original sage/green palette.
+  light: {
+    background: "#071814",
+    contour: "#5b987d",
+    nodes: {
+      note: "#b8e89f",
+      pdf: "#e7b390",
+      image: "#c2a5f1",
+      video: "#90c7f4",
+      link: "#e3d08d",
+    },
+    edges: {
+      "#7ee787": "#b7f4bd",
+      "#a78bfa": "#76afa3",
+      "#5d5680": "#536b78",
+    } as Record<string, string>,
+  },
 };
 // Obsidian-style: nodes take their cluster's colour (largest cluster first); a node in no group
 // keeps its content-type colour.
@@ -44,6 +70,7 @@ export function GraphScene({
     spinning: false,
   });
   const controlsRef = useRef<OrbitControls | null>(null);
+  const theme = useTheme();
   const [hover, setHover] = useState<Hover>(null),
     [failure, setFailure] = useState("");
   const [spinning, setSpinning] = useState(false),
@@ -85,17 +112,22 @@ export function GraphScene({
       );
       return;
     }
+    const palette = palettes[theme],
+      light = theme === "light",
+      colors = palette.nodes;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor("#0d1718", 1);
+    renderer.setClearColor(palette.background, 1);
     renderer.domElement.setAttribute(
       "aria-label",
       "3D knowledge graph. Drag to orbit, scroll to zoom, right-drag to pan. Use the source list below for keyboard access.",
     );
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2("#0d1718", 0.0025);
+    scene.fog = new THREE.FogExp2(palette.background, 0.0025);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1500);
-    camera.position.set(40, 24, 190);
+    // The large Memory Map starts closer so nodes fill more of its canvas.
+    if (large) camera.position.set(30, 18, 150);
+    else camera.position.set(40, 24, 190);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
@@ -161,19 +193,20 @@ export function GraphScene({
           map: texture,
           color: tint,
           transparent: true,
-          opacity: 0.75,
+          opacity: light ? 0.5 : 0.75,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         }),
       );
       mesh.add(glow);
-      glow.scale.setScalar(6);
+      glow.scale.setScalar(7);
     }
     for (const edge of visibleEdges) {
       const a = points.get(edge.source),
         b = points.get(edge.target);
       if (!a || !b) continue;
-      const style = edgeAppearance(edge.weight),
+      const base = edgeAppearance(edge.weight),
+        style = { ...base, color: palette.edges[base.color] ?? base.color },
         mid = a.clone().add(b).multiplyScalar(0.5);
       mid.y += 5;
       const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
@@ -227,9 +260,9 @@ export function GraphScene({
           new THREE.Line(
             new THREE.BufferGeometry().setFromPoints(points),
             new THREE.LineBasicMaterial({
-              color: "#5b987d",
+              color: palette.contour,
               transparent: true,
-              opacity: 0.085,
+              opacity: light ? 0.085 : 0.07,
               depthWrite: false,
             }),
           ),
@@ -362,6 +395,11 @@ export function GraphScene({
             id === hoveredId ||
             current.current.highlighted.includes(id);
         mesh.scale.setScalar(mesh.userData.size * (active ? 1.3 : 1));
+        (mesh.children[0] as THREE.Sprite).material.opacity = active
+          ? 0.95
+          : light
+            ? 0.5
+            : 0.6;
         mesh.material.opacity =
           hoveredId && !connected.has(id) && id !== hoveredId ? 0.25 : 1;
       });
@@ -408,7 +446,7 @@ export function GraphScene({
       renderer.dispose();
       canvas.remove();
     };
-  }, [items, edges, positions, visibleEdges, openSource]);
+  }, [items, edges, positions, visibleEdges, openSource, large, theme]);
   function zoom(factor: number) {
     const controls = controlsRef.current;
     if (!controls) return;
@@ -467,7 +505,7 @@ export function GraphScene({
                   ?.requestFullscreen()
                   .catch(() =>
                     setFailure(
-                      "Fullscreen is unavailable. Open Connections for a larger graph.",
+                      "Fullscreen is unavailable. Open the Memory Map for a larger graph.",
                     ),
                   );
             }}
