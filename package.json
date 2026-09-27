@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsc --project tsconfig.test.json && node --test .test-build/tests/*.test.js",
     "db:setup": "node --env-file=.env.local scripts/setup-database.mjs",
+    "db:seed-mock": "tsc --project tsconfig.test.json && node --env-file=.env scripts/seed-mock.mjs",
+    "clusters": "tsc --project tsconfig.test.json && node .test-build/scripts/clusters.js",
     "gemini:check": "node --env-file=.env.local scripts/check-gemini.mjs"
   },
   "dependencies": {

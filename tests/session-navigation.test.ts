@@ -13,7 +13,7 @@ type Session = { user: { sub?: string; name?: string } } | null;
 function page(path: string, ready: boolean, session: Session) {
   let reads = 0;
   const jsx = (type: string, props: Element["props"]) => ({ type, props });
-  const exports: { default?: () => Promise<Element> } = {};
+  const exports: { default?: (props?: unknown) => Promise<Element> } = {};
   const modules: Record<string, unknown> = {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "next/link": { __esModule: true, default: "a" },
@@ -60,10 +60,17 @@ function elements(value: unknown): Element[] {
   return [element, ...elements(element.props.children)];
 }
 
+const noParams = { searchParams: Promise.resolve({}) };
 test("home resumes a valid session instead of rendering demo", async () => {
   const home = page("src/app/page.tsx", true, { user: { sub: "auth0|test" } });
-  await assert.rejects(home.render(), /redirect:\/workspace/);
+  await assert.rejects(home.render(noParams), /redirect:\/workspace/);
   assert.equal(home.reads(), 1);
+});
+test("home ?mock shows the mock library even when signed in", async () => {
+  const home = page("src/app/page.tsx", true, { user: { sub: "auth0|test" } });
+  const result = await home.render({ searchParams: Promise.resolve({ mock: "" }) });
+  assert.equal(result.type, "workspace");
+  assert.equal(result.props.mock, true);
 });
 test("home keeps demo accessible when signed out, expired, or unconfigured", async () => {
   for (const [ready, session] of [
@@ -72,7 +79,7 @@ test("home keeps demo accessible when signed out, expired, or unconfigured", asy
     [false, null],
   ] as [boolean, Session][]) {
     const home = page("src/app/page.tsx", ready, session);
-    assert.equal((await home.render()).type, "workspace");
+    assert.equal((await home.render(noParams)).type, "workspace");
     assert.equal(home.reads(), ready ? 1 : 0);
   }
 });

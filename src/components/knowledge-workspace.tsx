@@ -41,6 +41,7 @@ import {
   segmentText,
 } from "@/lib/knowledge";
 import { demoItems } from "@/lib/demo-data";
+import { mockItems } from "@/lib/mock-data";
 import { edgeAppearance } from "@/lib/graph-layout";
 import { KnowledgeGraph } from "./knowledge-graph";
 import { AnswerPanel } from "./answer-panel";
@@ -95,6 +96,7 @@ type Props = {
   authConfigured: boolean;
   geminiConfigured?: boolean;
   semanticEnabled?: boolean;
+  mock?: boolean;
 };
 async function requestJson(url: string, options?: RequestInit) {
   const response = await fetch(url, options);
@@ -118,8 +120,11 @@ export function KnowledgeWorkspace({
   authConfigured,
   geminiConfigured = false,
   semanticEnabled = false,
+  mock = false,
 }: Props) {
-  const [items, setItems] = useState<KnowledgeItem[]>(live ? [] : demoItems);
+  const [items, setItems] = useState<KnowledgeItem[]>(
+    live ? [] : mock ? mockItems : demoItems,
+  );
   const [serverEdges, setServerEdges] = useState<Edge[]>([]);
   const [hydrated, setHydrated] = useState(false),
     [loading, setLoading] = useState(live);
@@ -159,7 +164,8 @@ export function KnowledgeWorkspace({
         } catch (e) {
           if (!cancelled) setError((e as Error).message);
         }
-      } else {
+      } else if (!mock) {
+        // The mock library is never stored, so it cannot overwrite a saved demo.
         try {
           const stored = localStorage.getItem("lattice-demo-v1");
           if (stored && !cancelled) {
@@ -184,9 +190,9 @@ export function KnowledgeWorkspace({
       cancelled = true;
       searchRef.current?.abort();
     };
-  }, [live]);
+  }, [live, mock]);
   useEffect(() => {
-    if (!live && hydrated) {
+    if (!live && !mock && hydrated) {
       try {
         localStorage.setItem("lattice-demo-v1", JSON.stringify(items));
       } catch {
@@ -197,7 +203,7 @@ export function KnowledgeWorkspace({
         );
       }
     }
-  }, [items, hydrated, live]);
+  }, [items, hydrated, live, mock]);
   useEffect(() => {
     if (modal || deleteId) dialog.current?.showModal();
     else dialog.current?.close();

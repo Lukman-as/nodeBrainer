@@ -20,6 +20,12 @@ const colors = {
   video: "#90c7f4",
   link: "#e3d08d",
 };
+// Obsidian-style: nodes take their cluster's colour (largest cluster first); a node in no group
+// keeps its content-type colour.
+const clusterColors = [
+  "#5fd4a0", "#f2a65a", "#8fa8ff", "#f27ea9", "#e8d45c",
+  "#6fd3e8", "#c792ea", "#ff8c73", "#9be36b", "#d9a5ff",
+];
 type Hover = { title: string; detail: string; x: number; y: number } | null;
 export function GraphScene({
   items,
@@ -105,9 +111,10 @@ export function GraphScene({
     glowCanvas.width = glowCanvas.height = 64;
     const ctx = glowCanvas.getContext("2d")!;
     const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gradient.addColorStop(0, "rgba(220,255,205,.8)");
-    gradient.addColorStop(0.2, "rgba(180,250,195,.3)");
-    gradient.addColorStop(1, "rgba(100,240,170,0)");
+    // Neutral white: the sprite colour (the node's cluster) sets the halo's hue.
+    gradient.addColorStop(0, "rgba(255,255,255,.8)");
+    gradient.addColorStop(0.2, "rgba(255,255,255,.3)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 64, 64);
     const texture = new THREE.CanvasTexture(glowCanvas);
@@ -126,11 +133,20 @@ export function GraphScene({
           .length,
       ]),
     );
+    const clusterOf = new Map(positions.map((p) => [p.id, p.cluster]));
+    const clusterSize = new Map<number, number>();
+    for (const c of clusterOf.values())
+      clusterSize.set(c, (clusterSize.get(c) ?? 0) + 1);
     for (const item of items) {
+      const cluster = clusterOf.get(item.id) ?? 0;
+      const tint =
+        (clusterSize.get(cluster) ?? 1) > 1
+          ? clusterColors[cluster % clusterColors.length]
+          : colors[item.type];
       const mesh = new THREE.Mesh(
         sphere,
         new THREE.MeshBasicMaterial({
-          color: colors[item.type],
+          color: tint,
           transparent: true,
         }),
       );
@@ -143,9 +159,9 @@ export function GraphScene({
       const glow = new THREE.Sprite(
         new THREE.SpriteMaterial({
           map: texture,
-          color: colors[item.type],
+          color: tint,
           transparent: true,
-          opacity: 0.5,
+          opacity: 0.75,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         }),

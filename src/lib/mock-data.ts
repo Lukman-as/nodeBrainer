@@ -1,0 +1,177 @@
+import { KnowledgeItem, segmentText } from "./knowledge";
+
+// 100 mock notes in 10 topics, for exercising clustering at library scale (open /?mock).
+// A few notes deliberately bridge topics (ML <-> linear algebra/calculus, SQL <-> web) so clusters are not trivially separate.
+const topics: { tags: string[]; notes: [title: string, content: string][] }[] = [
+  {
+    tags: ["calculus"],
+    notes: [
+      ["Limits and continuity", "A limit describes the value a function approaches. A function is continuous when its limit equals its value; epsilon-delta arguments make limits precise."],
+      ["Derivatives as rates of change", "The derivative measures the instantaneous rate of change of a function, the slope of the tangent line. See [[Chain rule]] for composite functions."],
+      ["Chain rule", "The chain rule differentiates composite functions: the derivative of f(g(x)) is f'(g(x)) times g'(x). It underpins implicit differentiation and related rates."],
+      ["Product and quotient rules", "The product rule and quotient rule differentiate products and ratios of functions. Combine them with the chain rule for harder derivatives."],
+      ["Definite integrals", "A definite integral computes the signed area under a curve as a limit of Riemann sums. See [[Fundamental theorem of calculus]]."],
+      ["Fundamental theorem of calculus", "Differentiation and integration are inverse operations: an antiderivative evaluates a definite integral between two limits."],
+      ["Integration by substitution", "Substitution reverses the chain rule: choose u = g(x) so the integral becomes simpler. Remember to change the limits of a definite integral."],
+      ["Integration by parts", "Integration by parts reverses the product rule: the integral of u dv equals uv minus the integral of v du. Useful for products like x times e^x."],
+      ["Taylor series", "A Taylor series approximates a function with a polynomial built from its derivatives at a point. Convergence depends on the radius of the series."],
+      ["Optimization with derivatives", "Set the derivative to zero to find critical points; the second derivative test classifies each as a maximum or minimum of the function."],
+    ],
+  },
+  {
+    tags: ["linear algebra"],
+    notes: [
+      ["Vectors and vector spaces", "A vector space is closed under vector addition and scalar multiplication. Basis vectors span the space; their count is the dimension."],
+      ["Matrix multiplication", "Matrix multiplication composes linear transformations: each entry is a dot product of a row and a column. It is associative but not commutative."],
+      ["Determinants", "The determinant of a square matrix measures how a linear transformation scales volume. A zero determinant means the matrix is not invertible."],
+      ["Matrix inverse", "An invertible matrix has an inverse that undoes its linear transformation. Gaussian elimination computes the inverse and solves linear systems."],
+      ["Eigenvalues and eigenvectors", "An eigenvector keeps its direction under a matrix; the eigenvalue is its scale factor. Solve det(A - lambda I) = 0 for eigenvalues."],
+      ["Diagonalization", "A matrix with a full set of eigenvectors is diagonalizable: A = P D P^-1, where D holds the eigenvalues. See [[Eigenvalues and eigenvectors]]."],
+      ["Orthogonality and projections", "Orthogonal vectors have a zero dot product. Projecting a vector onto a subspace finds its closest point; Gram-Schmidt builds an orthogonal basis."],
+      ["Rank and null space", "The rank of a matrix is the dimension of its column space; the null space holds vectors the matrix sends to zero. Rank plus nullity equals columns."],
+      ["Singular value decomposition", "SVD factors any matrix into U Sigma V^T, exposing singular values. Truncated SVD gives the best low-rank matrix approximation."],
+      ["Solving linear systems", "Gaussian elimination row-reduces an augmented matrix to solve linear equations; the rank tells whether a system has zero, one or infinite solutions."],
+    ],
+  },
+  {
+    tags: ["java", "oop"],
+    notes: [
+      ["Classes and objects in Java", "A Java class is a blueprint; an object is an instance with its own fields. Constructors initialize objects when you call new."],
+      ["Encapsulation", "Encapsulation hides a Java class's fields behind private access and exposes behaviour through public methods, getters and setters."],
+      ["Inheritance in Java", "A Java subclass extends a superclass to reuse fields and methods. Use super to call the parent constructor. See [[Polymorphism in Java]]."],
+      ["Polymorphism in Java", "Polymorphism lets a superclass reference call an overridden method on a subclass object at runtime. Method overloading is compile-time polymorphism."],
+      ["Abstract classes and interfaces", "An abstract class can hold state and partial implementations; a Java interface defines a contract a class implements. A class implements many interfaces."],
+      ["Java collections framework", "Java collections provide List, Set and Map interfaces with ArrayList, HashSet and HashMap implementations. Choose by ordering and lookup needs."],
+      ["Exceptions in Java", "Java exceptions signal errors: checked exceptions must be caught or declared with throws; unchecked exceptions extend RuntimeException."],
+      ["JUnit testing", "JUnit tests Java classes with @Test methods and assertions like assertEquals. Write a failing test first, then the class method that passes it."],
+      ["Java generics", "Generics let a Java class or method work with any type while keeping compile-time type safety, as in List<String> or a generic Box<T> class."],
+      ["SOLID principles", "SOLID guides object-oriented design: single responsibility, open-closed, Liskov substitution, interface segregation and dependency inversion for classes."],
+    ],
+  },
+  {
+    tags: ["react", "web"],
+    notes: [
+      ["React components", "React components are functions that return JSX. Props pass data into a component; composition builds a UI from small components."],
+      ["useState and useEffect", "The useState hook stores component state; useEffect runs side effects after render. List every dependency in the effect's dependency array."],
+      ["React rendering and keys", "React re-renders a component when its state or props change. Stable keys let React match list items between renders."],
+      ["Next.js app router", "The Next.js app router maps folders to routes: page.tsx renders a route and layout.tsx wraps it. Server components render on the server by default."],
+      ["Server and client components", "Next.js server components fetch data on the server; add 'use client' for components that need state, effects or browser events."],
+      ["CSS layout with flexbox and grid", "Flexbox lays out items along one axis; CSS grid handles rows and columns together. Use gap instead of margins between layout items."],
+      ["REST API design", "A REST API exposes resources at URLs with HTTP methods: GET reads, POST creates, PATCH updates, DELETE removes. Return clear status codes and JSON."],
+      ["Web accessibility basics", "Accessible web pages use semantic HTML, labels for form inputs, keyboard focus states and sufficient colour contrast for text."],
+      ["Fetching data in React", "Fetch data in a React component with an effect or, in Next.js, in a server component. Handle loading and error state for every web request."],
+      ["Web performance", "Web performance improves with smaller JavaScript bundles, lazy loading, cached responses and images sized for the layout. Measure with Lighthouse."],
+    ],
+  },
+  {
+    tags: ["sql", "databases"],
+    notes: [
+      ["SELECT queries", "A SQL SELECT query reads columns from a table; WHERE filters rows and ORDER BY sorts them. LIMIT caps how many rows return."],
+      ["SQL joins", "An INNER JOIN returns matching rows from two tables; a LEFT JOIN keeps every row from the left table. Join on keys with an index."],
+      ["Database indexes", "A database index speeds up lookups on a column at the cost of slower writes. B-tree indexes suit equality and range queries in SQL."],
+      ["Normalization", "Database normalization removes duplicate data by splitting tables: first, second and third normal form. Foreign keys link the normalized tables."],
+      ["Transactions and ACID", "A database transaction groups SQL statements so they commit or roll back together. ACID means atomic, consistent, isolated and durable."],
+      ["GROUP BY and aggregates", "GROUP BY collapses SQL rows into groups; aggregates like COUNT, SUM and AVG summarise each group. HAVING filters the grouped rows."],
+      ["PostgreSQL JSONB", "PostgreSQL stores JSON documents in a JSONB column you can index and query with operators like ->> and @>. Useful for flexible database records."],
+      ["Query plans with EXPLAIN", "EXPLAIN ANALYZE shows how the database executes a SQL query: sequential scans, index scans and join order. Use it before adding an index."],
+      ["Primary and foreign keys", "A primary key uniquely identifies each row in a table; a foreign key references another table's primary key to enforce database integrity."],
+      ["SQL injection prevention", "Never build SQL strings from user input. Parameterized queries send values separately so the database cannot run injected SQL."],
+    ],
+  },
+  {
+    tags: ["machine learning"],
+    notes: [
+      ["Supervised learning", "Supervised machine learning trains a model on labelled examples to predict outputs. Split data into training and test sets to measure generalisation."],
+      ["Gradient descent", "Gradient descent trains a model by stepping its parameters against the gradient of the loss. The learning rate sets the step; derivatives give the gradient."],
+      ["Overfitting and regularization", "An overfit model memorises training data and fails on new data. Regularization, dropout and more training data reduce overfitting."],
+      ["Neural networks", "A neural network stacks layers of weighted sums and activation functions; each layer is a matrix multiplication. Backpropagation trains the weights."],
+      ["Backpropagation", "Backpropagation applies the chain rule through a neural network to compute the gradient of the loss for every weight. See [[Gradient descent]]."],
+      ["Loss functions", "A loss function scores model predictions: mean squared error for regression, cross-entropy for classification. Training minimises the loss."],
+      ["Principal component analysis", "PCA reduces dimensions by projecting data onto the eigenvectors of its covariance matrix with the largest eigenvalues, often computed with SVD."],
+      ["Decision trees and random forests", "A decision tree splits data on features to predict a label; a random forest averages many trees to reduce overfitting in machine learning."],
+      ["Model evaluation metrics", "Evaluate a classification model with accuracy, precision, recall and F1; use a confusion matrix to see which labels the model confuses."],
+      ["Transformers and attention", "Transformer models use self-attention so each token weighs other tokens. Attention is a scaled dot product of query and key matrices."],
+    ],
+  },
+  {
+    tags: ["cooking"],
+    notes: [
+      ["Spaghetti carbonara", "Carbonara recipe: cook spaghetti, whisk eggs with pecorino, toss with crisp guanciale and black pepper off the heat so the eggs turn creamy."],
+      ["Knife skills", "A sharp chef's knife is safer than a dull one. Practise the claw grip for dicing onions and slicing vegetables evenly when cooking."],
+      ["Making a roux", "A roux cooks equal parts butter and flour; whisk in milk for bechamel sauce or stock for gravy. Cook it longer for a darker, nuttier sauce."],
+      ["Bread baking basics", "Bread dough needs flour, water, yeast and salt. Knead to build gluten, let the dough rise, shape it, then bake until the crust is deep brown."],
+      ["Searing meat", "Pat meat dry and sear it in a very hot pan with oil; the Maillard reaction browns the crust. Rest the meat before slicing to keep it juicy."],
+      ["Stir-fry technique", "A stir-fry cooks small, even pieces in a very hot wok with little oil. Add aromatics like garlic and ginger, then vegetables, then the sauce."],
+      ["Homemade pizza dough", "Pizza dough is bread dough with olive oil, proofed slowly in the fridge. Bake the pizza on a hot stone or steel for a crisp crust."],
+      ["Balancing flavour", "Balance a recipe with salt, acid, fat and heat: a squeeze of lemon or splash of vinegar brightens a dish that tastes flat. Taste while cooking."],
+      ["Meal prep for the week", "Meal prep a batch of grains, roasted vegetables and a protein on Sunday. Store each recipe portion in the fridge for quick weekday cooking."],
+      ["Chocolate chip cookies", "Cookie recipe: cream butter and sugar, add eggs, flour and chocolate chips. Chill the dough before you bake for thicker, chewier cookies."],
+    ],
+  },
+  {
+    tags: ["fitness", "health"],
+    notes: [
+      ["Progressive overload", "Progressive overload builds strength by gradually increasing weight, reps or sets in your training. Track workouts to make steady progress."],
+      ["Squat technique", "Squat with feet shoulder-width apart, brace your core, and keep knees tracking over toes. Depth and form matter more than the weight on the bar."],
+      ["Deadlift form", "Deadlift with a neutral spine: hinge at the hips, keep the bar close to your legs and push through the floor. Brace before every rep."],
+      ["Protein for muscle growth", "Muscle growth needs enough protein, roughly 1.6 g per kg of body weight daily, spread across meals alongside strength training."],
+      ["Sleep and recovery", "Muscles recover and grow during sleep. Aim for seven to nine hours; poor sleep hurts strength training performance and health."],
+      ["Running training plans", "A running plan mixes easy runs, intervals and a weekly long run. Increase weekly mileage by about ten percent to avoid injury."],
+      ["Mobility and stretching", "Dynamic stretching warms up joints before training; static stretching after a workout helps mobility. Hip and shoulder mobility aid squat depth."],
+      ["Push-pull-legs split", "A push-pull-legs training split trains chest and shoulders, then back and biceps, then legs, letting each muscle group recover between workouts."],
+      ["Hydration and electrolytes", "Drink water through the day and replace electrolytes like sodium after long, sweaty workouts to keep training performance and health up."],
+      ["Resting heart rate", "A falling resting heart rate often signals improving cardio fitness. Track it each morning to spot overtraining, illness or poor recovery."],
+    ],
+  },
+  {
+    tags: ["history"],
+    notes: [
+      ["Rise of the Roman Republic", "Rome became a republic in 509 BC, governed by elected consuls and the Senate. Expansion across Italy made Rome a Mediterranean power."],
+      ["Julius Caesar", "Julius Caesar conquered Gaul, crossed the Rubicon and became dictator of Rome. His assassination in 44 BC ended the Roman Republic."],
+      ["The Roman Empire under Augustus", "Augustus became the first Roman emperor in 27 BC, beginning the Pax Romana, two centuries of relative peace across the empire."],
+      ["Fall of the Western Roman Empire", "The Western Roman Empire fell in 476 AD after economic decline, political instability and invasions by Germanic peoples."],
+      ["The Byzantine Empire", "The Eastern Roman Empire, later called Byzantine, ruled from Constantinople for a thousand years until the Ottoman conquest of 1453."],
+      ["Medieval feudalism", "Medieval feudalism bound lords, vassals and peasants in obligations of land, service and protection across Europe after the fall of Rome."],
+      ["The Renaissance", "The Renaissance revived classical Greek and Roman learning in fourteenth-century Italy, transforming European art, science and history writing."],
+      ["The printing press", "Gutenberg's printing press, around 1440, made books cheap and spread Renaissance and Reformation ideas quickly through Europe."],
+      ["Causes of World War I", "Militarism, alliances, imperialism and nationalism set the stage for World War I; the assassination of Franz Ferdinand in 1914 sparked the war."],
+      ["The Cold War", "The Cold War was a rivalry between the United States and the Soviet Union from 1947 to 1991, fought through proxy wars, arms races and the space race."],
+    ],
+  },
+  {
+    tags: ["finance", "investing"],
+    notes: [
+      ["Compound interest", "Compound interest earns interest on previous interest, so money grows exponentially. Start investing early to give compounding time."],
+      ["Index funds", "An index fund tracks a market index like the S&P 500 at a low fee. Broad index investing beats most actively managed funds over time."],
+      ["Emergency fund", "Keep three to six months of expenses in a high-interest savings account as an emergency fund before investing in the market."],
+      ["Budgeting with 50/30/20", "The 50/30/20 budget puts 50% of income to needs, 30% to wants and 20% to savings and investing. Track spending monthly."],
+      ["TFSA vs RRSP", "In Canada a TFSA grows tax-free and withdrawals are untaxed; an RRSP deduction lowers taxable income now, and withdrawals are taxed later."],
+      ["Diversification", "Diversification spreads investing across stocks, bonds and regions so one market loss does not sink a portfolio. Rebalance once a year."],
+      ["Paying off credit card debt", "Credit card interest is often above 20%, so paying off the debt beats almost any investing return. Use the avalanche method: highest interest first."],
+      ["Dollar-cost averaging", "Dollar-cost averaging invests a fixed amount on a schedule, buying more shares when the market is low and fewer when it is high."],
+      ["Understanding credit scores", "A credit score reflects payment history, credit utilization and account age. Paying every bill on time is the biggest factor."],
+      ["Risk tolerance and asset allocation", "Asset allocation sets the mix of stocks and bonds in a portfolio by time horizon and risk tolerance; younger investors can hold more stocks."],
+    ],
+  },
+];
+
+const types: KnowledgeItem["type"][] = ["note", "note", "pdf", "link", "video"];
+export const mockItems: KnowledgeItem[] = topics.flatMap((topic, t) =>
+  topic.notes.map(([title, content], n) => {
+    const i = t * 10 + n,
+      at = new Date(Date.UTC(2026, 8, 1) + i * 3_600_000).toISOString();
+    return {
+      id: `mock-${String(i + 1).padStart(3, "0")}`,
+      title,
+      type: types[n % types.length],
+      content,
+      tags: topic.tags,
+      segments: segmentText(content),
+      status: "ready" as const,
+      version: 1,
+      sample: true,
+      createdAt: at,
+      updatedAt: at,
+    };
+  }),
+);

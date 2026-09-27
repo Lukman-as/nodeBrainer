@@ -1,5 +1,20 @@
 import type { Edge, KnowledgeItem } from "./knowledge";
-export type GraphPosition = { id: string; x: number; y: number; z: number };
+import { clusterGraph } from "./clusters";
+export type GraphPosition = {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  cluster: number;
+};
+/** Point i of n spread evenly over a unit sphere (Fibonacci lattice). */
+function spherePoint(i: number, n: number) {
+  if (n <= 1) return { x: 0, y: 0, z: 0 };
+  const y = 1 - (2 * (i + 0.5)) / n,
+    phi = i * Math.PI * (3 - Math.sqrt(5)),
+    r = Math.sqrt(1 - y * y);
+  return { x: r * Math.cos(phi), y, z: r * Math.sin(phi) };
+}
 export function edgeAppearance(weight: number) {
   const strength = Math.max(
     0,
@@ -14,21 +29,37 @@ export function edgeAppearance(weight: number) {
       strength >= 0.5 ? "#b7f4bd" : strength >= 0.2 ? "#76afa3" : "#536b78",
   };
 }
-/** Stable, bounded spring layout. Every point is a real library item. */
+/**
+ * Stable, bounded spring layout. Every point is a real library item. Each cluster gets its own
+ * region of the sphere and its members start clumped there, so related notes read as a group.
+ */
 export function layoutGraph(
   items: KnowledgeItem[],
   edges: Edge[],
 ): GraphPosition[] {
   const sorted = [...items].sort((a, b) => a.id.localeCompare(b.id));
-  const nodes = sorted.map((item, i) => {
-    const y = 1 - (2 * (i + 0.5)) / Math.max(sorted.length, 1),
-      phi = i * Math.PI * (3 - Math.sqrt(5)),
-      r = Math.sqrt(1 - y * y);
+  const clusters = clusterGraph(
+    sorted.map((i) => i.id),
+    edges,
+  );
+  const members = new Map<number, string[]>();
+  for (const item of sorted) {
+    const c = clusters.get(item.id)!;
+    if (!members.has(c)) members.set(c, []);
+    members.get(c)!.push(item.id);
+  }
+  const nodes = sorted.map((item) => {
+    const c = clusters.get(item.id)!,
+      group = members.get(c)!,
+      center = spherePoint(c, members.size),
+      spread = members.size > 1 ? 5 + 3 * Math.sqrt(group.length) : 58,
+      offset = spherePoint(group.indexOf(item.id), group.length);
     return {
       id: item.id,
-      x: 58 * r * Math.cos(phi),
-      y: y * 45,
-      z: 42 * r * Math.sin(phi),
+      x: 58 * center.x + spread * offset.x,
+      y: 45 * center.y + spread * offset.y * 0.8,
+      z: 42 * center.z + spread * offset.z,
+      cluster: c,
     };
   });
   const anchors = nodes.map((n) => ({ ...n })),
@@ -58,7 +89,11 @@ export function layoutGraph(
       const a = nodes[ai],
         b = nodes[bi],
         dist = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) || 1,
-        pull = (dist - (25 + 30 * (1 - edge.weight))) * 0.012 * edge.weight;
+        same = a.cluster === b.cluster,
+        // Short springs inside a cluster keep it tight; slack, weak ones between clusters keep
+        // bridge notes visible without dragging whole groups into each other.
+        rest = same ? 8 + 12 * (1 - edge.weight) : 45,
+        pull = (dist - rest) * 0.012 * edge.weight * (same ? 1 : 0.3);
       for (const axis of ["x", "y", "z"] as const) {
         const delta = ((b[axis] - a[axis]) / dist) * pull;
         forces[ai][axis] += delta;

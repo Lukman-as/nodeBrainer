@@ -3,9 +3,15 @@ import { getAuth0, isAuthConfigured } from "@/lib/auth0";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const ready = isAuthConfigured();
-  if (ready && (await getAuth0().getSession())?.user?.sub)
+  // /?mock shows the 100-note mock library, even when signed in.
+  const mock = "mock" in (await searchParams);
+  if (!mock && ready && (await getAuth0().getSession())?.user?.sub)
     redirect("/workspace");
-  return <KnowledgeWorkspace authConfigured={ready} />;
+  return <KnowledgeWorkspace authConfigured={ready} mock={mock} />;
 }
