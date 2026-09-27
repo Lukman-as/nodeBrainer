@@ -66,11 +66,11 @@ export function SplashScreen() {
       <Image
         className="splash-image"
         src="/nodebrainer-splash.png"
-        alt="NodeBrainer — your second mind"
+        alt="NodeBrainer"
         fill
         preload
-        // Tall portrait screens show the image at 2.2x the viewport width (see globals.css).
-        sizes="(max-aspect-ratio: 82/100) 220vw, 100vw"
+        // The wordmark banner is shown whole, up to 1100px wide (see globals.css).
+        sizes="(max-width: 1310px) 84vw, 1100px"
       />
     </div>
   );

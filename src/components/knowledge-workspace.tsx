@@ -51,7 +51,6 @@ import { locatorSchema, noteInput } from "@/lib/validation";
 import { icons, typeLabels, type SearchHistoryEntry } from "./item-meta";
 import { RelatedMemories } from "./related-memories";
 import { RecentActivity, SearchHistory } from "./activity-pages";
-import { ThemeToggle } from "./theme-toggle";
 
 type View = "memory" | "activity" | "history" | "library";
 const viewTitles: Record<View, string> = {
@@ -556,7 +555,7 @@ export function KnowledgeWorkspace({
         >
           <span className="brand-mark">
             {/* Decorative: the link's name is the NodeBrainer text beside it. */}
-            <Image src="/nodebrainer-icon.png" alt="" width={36} height={36} />
+            <Image src="/icon-logo.png" alt="" width={36} height={36} />
           </span>
           <span className="brand-name">
             Node<span className="brand-accent">Brainer</span>
@@ -575,7 +574,7 @@ export function KnowledgeWorkspace({
           >
             <Image
               className="nav-image-icon"
-              src="/nodebrainer-icon.png"
+              src="/icon-logo.png"
               alt=""
               width={22}
               height={22}
@@ -684,7 +683,6 @@ export function KnowledgeWorkspace({
               <Plus size={16} />
               Add content
             </button>
-            <ThemeToggle />
             <span className="preview-pill">
               <span />
               {live ? "Private library" : "Local demo"}
@@ -719,7 +717,7 @@ export function KnowledgeWorkspace({
         >
           <div className={`library-panel view-${view}`}>
             <div
-              className={`page-heading ${view === "memory" ? "memory-hero" : ""}`}
+              className="page-heading"
             >
               <div>
                 <div className="eyebrow">{viewTitles[view].toUpperCase()}</div>

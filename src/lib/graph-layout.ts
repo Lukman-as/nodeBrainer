@@ -26,7 +26,7 @@ export function edgeAppearance(weight: number) {
     dashed: strength < 0.2,
     label: strength >= 0.5 ? "Strong" : strength >= 0.2 ? "Medium" : "Weak",
     color:
-      strength >= 0.5 ? "#7ee787" : strength >= 0.2 ? "#a78bfa" : "#5d5680",
+      strength >= 0.5 ? "#b7f4bd" : strength >= 0.2 ? "#76afa3" : "#536b78",
   };
 }
 /**
