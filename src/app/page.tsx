@@ -9,9 +9,9 @@ export default async function Home({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const ready = isAuthConfigured();
-  // /?mock shows the 100-note mock library, even when signed in.
+  // The demo is the 100-note mock library; /?mock shows it even when signed in.
   const mock = "mock" in (await searchParams);
   if (!mock && ready && (await getAuth0().getSession())?.user?.sub)
     redirect("/workspace");
-  return <KnowledgeWorkspace authConfigured={ready} mock={mock} />;
+  return <KnowledgeWorkspace authConfigured={ready} mock />;
 }
