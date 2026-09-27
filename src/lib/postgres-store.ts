@@ -82,7 +82,7 @@ export class PostgresStore {
     version: number,
     update: Pick<
       KnowledgeItem,
-      "title" | "content" | "tags" | "segments" | "updatedAt"
+      "title" | "content" | "tags" | "segments" | "updatedAt" | "graphEmbedding"
     >,
   ): Promise<KnowledgeItem | undefined> {
     const result = await this.pool.query<{ document: KnowledgeItem }>(
@@ -98,18 +98,23 @@ export class PostgresStore {
     );
     return result.rows[0]?.document;
   }
-  /** Replaces vectors only; the version guard drops the write if the item was edited meanwhile. */
-  async setSegments(
+  async saveIndex(
     ownerId: string,
-    id: string,
-    version: number,
+    item: KnowledgeItem,
     segments: KnowledgeItem["segments"],
+    graphEmbedding: NonNullable<KnowledgeItem["graphEmbedding"]>,
   ) {
-    await this.pool.query(
-      `UPDATE knowledge_items SET document = jsonb_set(document, '{segments}', $4::jsonb)
+    const result = await this.pool.query(
+      `UPDATE knowledge_items SET document = document || $4::jsonb
        WHERE owner_id = $1 AND id = $2 AND (document->>'version')::integer = $3`,
-      [ownerId, id, version, JSON.stringify(segments)],
+      [
+        ownerId,
+        item.id,
+        item.version,
+        JSON.stringify({ segments, graphEmbedding }),
+      ],
     );
+    return Boolean(result.rowCount);
   }
   async deleteItem(ownerId: string, id: string) {
     const result = await this.pool.query<{ asset_path: string | null }>(

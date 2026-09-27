@@ -6,6 +6,7 @@ export type Segment = {
   locator: { page?: number; start?: number; end?: number; section?: string };
   embedding?: number[];
   embeddingModel?: string;
+  embeddingVersion?: number;
 };
 export type KnowledgeItem = {
   id: string;
@@ -21,6 +22,7 @@ export type KnowledgeItem = {
   sourceUrl?: string;
   hasAsset?: boolean;
   sample?: boolean;
+  graphEmbedding?: { vector: number[]; model: string; version: number } | null;
   error?: string;
 };
 export type Edge = {
@@ -32,12 +34,14 @@ export type Edge = {
   explicit: boolean;
   sharedTags: string[];
   basis: "semantic" | "lexical";
+  evidence?: string;
 };
 export type SearchResult = {
   itemId: string;
   segmentId: string;
   score: number;
   discovery: "direct" | "graph";
+  passages?: { segmentId: string; score: number }[];
   path: string[];
   edges: Edge[];
 };
@@ -55,18 +59,20 @@ const stopWords = new Set(
     " ",
   ),
 );
-// Crude stemming (drop a plural "s", keep a 7-char prefix) so integral/integrals/integration/integrate match.
-// ponytail: prefix stemming over-merges rare pairs (universe/university); swap in a real stemmer if that bites.
-const stem = (t: string) => t.replace(/s$/, "").slice(0, 7);
 export function tokens(text: string): string[] {
-  return (
-    text
-      .toLowerCase()
-      .match(/[\p{L}\p{N}]+/gu)
-      ?.filter((t) => t.length > 1 && !stopWords.has(t))
-      .map(stem) ?? []
-  );
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((t) => t.length > 1 && !stopWords.has(t))
+    .map((t) =>
+      t.length > 4 && t.endsWith("ies")
+        ? t.slice(0, -3) + "y"
+        : t.length > 4 && t.endsWith("s") && !t.endsWith("ss")
+          ? t.slice(0, -1)
+          : t,
+    )
+    .map((t) => t.slice(0, 7));
 }
+const clamp = (n: number) =>
+  Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
 export function cosine(a: number[], b: number[]): number {
   if (!a.length || a.length !== b.length) return 0;
   let dot = 0,
@@ -77,8 +83,7 @@ export function cosine(a: number[], b: number[]): number {
     aa += a[i] * a[i];
     bb += b[i] * b[i];
   }
-  const norm = Math.sqrt(aa * bb);
-  return norm ? Math.max(0, Math.min(1, dot / norm)) : 0;
+  return aa && bb ? clamp(dot / Math.sqrt(aa * bb)) : 0;
 }
 // Raw embedding cosine is never near 0. On gemini-embedding-001 (768d) unrelated notes sit at
 // ~0.64-0.72 and same-topic notes at ~0.82-0.88; a query scores ~0.50-0.58 against unrelated
@@ -125,60 +130,111 @@ function sparseDot(a: Map<string, number>, b: Map<string, number>) {
   return dot;
 }
 function noteVector(item: KnowledgeItem) {
-  const segments = item.segments.filter((s) => s.embedding?.length);
-  if (!segments.length) return undefined;
-  const model = segments[0].embeddingModel;
-  const vectors = segments.filter(
+  if (item.graphEmbedding)
+    return {
+      ...item.graphEmbedding,
+      space: `similarity:${item.graphEmbedding.version}`,
+    };
+  const first = item.segments.find(
+    (s) => s.embedding?.length && s.embeddingModel,
+  );
+  if (!first) return undefined;
+  const vectors = item.segments.filter(
     (s) =>
-      s.embeddingModel === model &&
-      s.embedding!.length === segments[0].embedding!.length,
+      s.embeddingModel === first.embeddingModel &&
+      s.embeddingVersion === first.embeddingVersion &&
+      s.embedding?.length === first.embedding!.length,
+  );
+  const vector = first.embedding!.map(
+    (_, i) =>
+      vectors.reduce((sum, s) => sum + s.embedding![i], 0) / vectors.length,
   );
   return {
-    model,
-    vector: vectors[0].embedding!.map(
-      (_, i) =>
-        vectors.reduce((sum, s) => sum + s.embedding![i], 0) / vectors.length,
-    ),
+    model: first.embeddingModel,
+    vector,
+    space: `retrieval:${first.embeddingVersion ?? 0}`,
   };
+}
+function frequencies(words: string[]) {
+  const counts = new Map<string, number>();
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+  return counts;
+}
+function weightedWords(item: KnowledgeItem, text: string) {
+  const counts = frequencies(tokens(text));
+  for (const word of tokens(item.title))
+    counts.set(word, (counts.get(word) ?? 0) + 3);
+  for (const word of tokens(item.tags.join(" ")))
+    counts.set(word, (counts.get(word) ?? 0) + 2);
+  return counts;
+}
+/** Suppress the background similarity of embeddings. Strength is a ranking signal, not a probability. */
+export function semanticStrength(similarity: number) {
+  return clamp((similarity - 0.4) / 0.6);
 }
 export function buildGraph(items: KnowledgeItem[]): Edge[] {
   const ready = items.filter((i) => i.status === "ready");
-  const vectors = ready.map(noteVector);
+  const vectors = new Map(ready.map((i) => [i.id, noteVector(i)]));
   const terms = termVectors(ready);
-  const links = ready.map((i) => i.content.toLowerCase());
   const edges: Edge[] = [];
   for (let a = 0; a < ready.length; a++)
     for (let b = a + 1; b < ready.length; b++) {
       const first = ready[a],
-        second = ready[b];
-      const av = vectors[a],
-        bv = vectors[b];
+        second = ready[b],
+        av = vectors.get(first.id),
+        bv = vectors.get(second.id);
+      const compatible = Boolean(
+        av &&
+        bv &&
+        av.model === bv.model &&
+        av.space === bv.space &&
+        av.vector.length === bv.vector.length,
+      );
+      const semantic = compatible ? cosine(av!.vector, bv!.vector) : 0;
+      const overlap = textSimilarity(sparseDot(terms[a], terms[b]));
       const explicit =
-        links[a].includes(`[[${second.title.toLowerCase()}]]`) ||
-        links[b].includes(`[[${first.title.toLowerCase()}]]`);
-      const basis = av && bv && av.model === bv.model ? "semantic" : "lexical";
-      const semantic =
-        basis === "semantic"
-          ? noteSimilarity(cosine(av!.vector, bv!.vector))
-          : 0;
-      // Meaning is a hard gate: skip the text comparison for pairs the embeddings call unrelated.
-      if (basis === "semantic" && !semantic && !explicit) continue;
-      const text = textSimilarity(sparseDot(terms[a], terms[b]));
-      // Geometric mean: an edge needs both similar meaning AND shared distinctive wording,
-      // so a vague topical echo with no common vocabulary (or the reverse) stays near zero.
-      const related =
-        basis === "semantic" ? Math.sqrt(semantic * text) : text;
-      const weight = explicit ? 1 - (1 - related) * 0.4 : related;
-      if (weight >= 0.15 || explicit)
+        first.content
+          .toLowerCase()
+          .includes(`[[${second.title.toLowerCase()}]]`) ||
+        second.content
+          .toLowerCase()
+          .includes(`[[${first.title.toLowerCase()}]]`);
+      const tagsA = new Set(first.tags.map((t) => t.toLowerCase())),
+        tagsB = new Set(second.tags.map((t) => t.toLowerCase()));
+      const sharedTags = [...tagsA].filter((t) => tagsB.has(t));
+      const union = new Set([...tagsA, ...tagsB]).size;
+      const symmetric = compatible && av!.space.startsWith("similarity:");
+      // Existing retrieval vectors keep the upstream calibration; the new
+      // symmetric index uses its own similarity scale.
+      const base = compatible
+        ? symmetric
+          ? semanticStrength(semantic)
+          : Math.sqrt(noteSimilarity(semantic) * overlap)
+        : overlap;
+      const weight = symmetric
+        ? clamp(
+            1 -
+              (1 - base) *
+                (1 - 0.8 * Number(explicit)) *
+                (1 - 0.15 * (union ? sharedTags.length / union : 0)),
+          )
+        : explicit
+          ? 1 - (1 - base) * 0.4
+          : base;
+      if (
+        explicit ||
+        (symmetric ? semantic >= 0.52 || sharedTags.length > 0 : weight >= 0.15)
+      )
         edges.push({
           source: first.id,
           target: second.id,
           weight,
           semantic,
-          lexical: text,
+          lexical: overlap,
           explicit,
-          sharedTags: first.tags.filter((t) => second.tags.includes(t)),
-          basis,
+          sharedTags,
+          basis: compatible ? "semantic" : "lexical",
+          evidence: `${compatible ? `Meaning similarity ${semantic.toFixed(2)}; normalized strength ${base.toFixed(2)}` : `Title-aware text similarity ${overlap.toFixed(2)}; semantic index missing`}${explicit ? "; explicit link" : ""}${sharedTags.length ? "; shared topics: " + sharedTags.join(", ") : ""}. Strength is not an accuracy probability.`,
         });
     }
   return edges.sort((a, b) => b.weight - a.weight);
@@ -186,30 +242,15 @@ export function buildGraph(items: KnowledgeItem[]): Edge[] {
 export function searchKnowledge(
   items: KnowledgeItem[],
   query: string,
-  queryVector?: { vector: number[]; model: string },
+  queryVector?: { vector: number[]; model: string; version?: number },
 ): SearchResponse {
-  const started = performance.now();
-  const edges = buildGraph(items);
-  const queryTokens = new Set(tokens(query));
-  const coverage = (words: Set<string>) => {
-    let hits = 0;
-    for (const t of queryTokens) if (words.has(t)) hits++;
-    return queryTokens.size ? hits / queryTokens.size : 0;
-  };
-  const hasSemantic = Boolean(
-    queryVector &&
-    items.some((i) =>
-      i.segments.some(
-        (s) =>
-          s.embeddingModel === queryVector.model &&
-          s.embedding?.length === queryVector.vector.length,
-      ),
-    ),
-  );
-  const ranked = items
+  const started = performance.now(),
+    edges = buildGraph(items);
+  const terms = [...new Set(tokens(query))];
+  const candidates = items
     .filter((i) => i.status === "ready")
-    .map((item) => {
-      const segments = item.segments.length
+    .flatMap((item) =>
+      (item.segments.length
         ? item.segments
         : [
             {
@@ -218,54 +259,99 @@ export function searchKnowledge(
               kind: "text" as const,
               locator: {},
             },
-          ];
-      const heading = new Set(tokens(`${item.title} ${item.tags.join(" ")}`));
-      const titleHits = coverage(heading);
-      const matches = segments
-        .map((segment) => {
-          const words = new Set(tokens(segment.text));
-          for (const t of heading) words.add(t);
-          // A title/tag hit outranks the same word buried in a passage.
-          const key = 0.7 * coverage(words) + 0.3 * titleHits;
-          const compatible =
-            queryVector &&
-            segment.embeddingModel === queryVector.model &&
-            segment.embedding?.length === queryVector.vector.length;
-          const sem = compatible
-            ? querySimilarity(cosine(queryVector.vector, segment.embedding!))
-            : 0;
-          return {
-            segmentId: segment.id,
-            score: compatible ? 0.7 * sem + 0.3 * key : key,
-          };
-        })
-        .sort((a, b) => b.score - a.score);
-      return { itemId: item.id, ...matches[0] };
+          ]
+      ).map((segment) => ({
+        item,
+        segment,
+        tf: weightedWords(item, segment.text),
+        length: Math.max(1, tokens(segment.text).length),
+      })),
+    );
+  const average =
+    candidates.reduce((n, c) => n + c.length, 0) /
+    Math.max(1, candidates.length);
+  const df = new Map(
+    terms.map((t) => [t, candidates.filter((c) => c.tf.has(t)).length]),
+  );
+  const byItem = new Map<
+    string,
+    { segmentId: string; score: number; eligible: boolean }[]
+  >();
+  let hasSemantic = false;
+  for (const candidate of candidates) {
+    let bm25 = 0;
+    for (const term of terms) {
+      const tf = candidate.tf.get(term) ?? 0;
+      const idf = Math.log(
+        1 +
+          (candidates.length - (df.get(term) ?? 0) + 0.5) /
+            ((df.get(term) ?? 0) + 0.5),
+      );
+      bm25 +=
+        (idf * (tf * 2.2)) /
+        (tf + 1.2 * (0.25 + (0.75 * candidate.length) / average));
+    }
+    const keyword = 1 - Math.exp(-bm25 / 2);
+    const s = candidate.segment;
+    const compatible = Boolean(
+      queryVector &&
+      s.embeddingModel === queryVector.model &&
+      (s.embeddingVersion ?? 0) === (queryVector.version ?? 0) &&
+      s.embedding?.length === queryVector.vector.length,
+    );
+    hasSemantic ||= compatible;
+    const sem = compatible ? cosine(queryVector!.vector, s.embedding!) : 0;
+    const meaning = queryVector?.version
+      ? clamp((sem - 0.3) / 0.7)
+      : querySimilarity(sem);
+    // Preserve exact/rare matches even if a document's semantic representation is weak.
+    const score = compatible
+      ? Math.max(0.85 * keyword, 0.7 * meaning + 0.3 * keyword)
+      : keyword;
+    const matches = byItem.get(candidate.item.id) ?? [];
+    matches.push({
+      segmentId: s.id,
+      score,
+      eligible: bm25 > 0 || (compatible && sem >= 0.55),
+    });
+    byItem.set(candidate.item.id, matches);
+  }
+  const ranked = [...byItem]
+    .map(([itemId, matches]) => {
+      matches.sort((a, b) => b.score - a.score);
+      return {
+        itemId,
+        ...matches[0],
+        passages: matches
+          .filter((m) => m.eligible && m.score >= 0.12)
+          .slice(0, 3)
+          .map(({ segmentId, score }) => ({ segmentId, score })),
+      };
     })
     .sort((a, b) => b.score - a.score);
-  const relevance = new Map(ranked.map((r) => [r.itemId, r]));
-  const adjacency = new Map<string, Edge[]>();
-  for (const edge of edges)
-    for (const id of [edge.source, edge.target]) {
-      if (!adjacency.has(id)) adjacency.set(id, []);
-      adjacency.get(id)!.push(edge);
-    }
-  const direct = ranked.filter((r) => r.score >= (hasSemantic ? 0.3 : 0.15));
+  const rankedById = new Map(ranked.map((r) => [r.itemId, r]));
+  const direct = ranked.filter((r) => r.eligible && r.score >= 0.12);
   const results = new Map<string, SearchResult>(
-    direct.map((r) => [
+    direct.map(({ eligible: _, ...r }) => [
       r.itemId,
       { ...r, discovery: "direct", path: [r.itemId], edges: [] },
     ]),
   );
-  const queue = direct
-    .slice(0, 5)
-    .map((r) => ({
-      id: r.itemId,
-      path: [r.itemId],
-      edges: [] as Edge[],
-      strength: 1,
-      priority: r.score,
-    }));
+  const adjacency = new Map<string, Edge[]>();
+  for (const edge of edges)
+    for (const id of [edge.source, edge.target]) {
+      const list = adjacency.get(id) ?? [];
+      list.push(edge);
+      adjacency.set(id, list);
+    }
+  const queue = direct.slice(0, 5).map((r) => ({
+    id: r.itemId,
+    path: [r.itemId],
+    edges: [] as Edge[],
+    strength: 1,
+    priority: r.score,
+    seed: r.score,
+  }));
   let expanded = 0,
     scored = 0;
   const best = new Map<string, number>();
@@ -279,32 +365,45 @@ export function searchKnowledge(
       continue;
     best.set(current.id, current.priority);
     expanded++;
-    // Edges are sorted by weight, so each adjacency list is strongest-first.
-    const neighbors = (adjacency.get(current.id) ?? []).slice(0, 15);
-    for (const edge of neighbors) {
+    for (const edge of (adjacency.get(current.id) ?? []).slice(0, 15)) {
       if (scored >= 200) break;
       const id = edge.source === current.id ? edge.target : edge.source;
       if (current.path.includes(id)) continue;
       scored++;
-      const match = relevance.get(id)!;
+      const relevance = rankedById.get(id);
+      if (!relevance) continue;
+      if (!edge.explicit && edge.weight < 0.3) continue;
       const strength = current.strength * edge.weight;
       const path = [...current.path, id],
         pathEdges = [...current.edges, edge];
       const score =
-        (0.15 + 0.85 * match.score) * strength * 0.8 ** (path.length - 1);
+        current.seed *
+        (0.35 + 0.65 * relevance.score) *
+        strength *
+        0.8 ** (path.length - 1);
+      if (score < 0.035) continue;
       const existing = results.get(id);
       if (
         !existing ||
         (existing.discovery === "graph" && score > existing.score)
       )
         results.set(id, {
-          ...match,
+          itemId: id,
+          segmentId: relevance.segmentId,
+          passages: relevance.passages,
           score,
           discovery: "graph",
           path,
           edges: pathEdges,
         });
-      queue.push({ id, path, edges: pathEdges, strength, priority: score });
+      queue.push({
+        id,
+        path,
+        edges: pathEdges,
+        strength,
+        priority: score,
+        seed: current.seed,
+      });
     }
   }
   return {

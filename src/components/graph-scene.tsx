@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  ArrowLeft,
   Expand,
   Minimize,
   Pause,
@@ -11,7 +12,13 @@ import {
   Minus,
   Plus,
 } from "lucide-react";
+import {
+  FLIGHT_DURATION,
+  flightProgress,
+  fadeVisibility,
+} from "@/lib/graph-motion";
 import { edgeAppearance, layoutGraph } from "@/lib/graph-layout";
+import { MapAnswer } from "./map-answer";
 import type { GraphProps } from "./knowledge-graph";
 const colors = {
   note: "#b8e89f",
@@ -23,10 +30,25 @@ const colors = {
 // Obsidian-style: nodes take their cluster's colour (largest cluster first); a node in no group
 // keeps its content-type colour.
 const clusterColors = [
-  "#5fd4a0", "#f2a65a", "#8fa8ff", "#f27ea9", "#e8d45c",
-  "#6fd3e8", "#c792ea", "#ff8c73", "#9be36b", "#d9a5ff",
+  "#5fd4a0",
+  "#f2a65a",
+  "#8fa8ff",
+  "#f27ea9",
+  "#e8d45c",
+  "#6fd3e8",
+  "#c792ea",
+  "#ff8c73",
+  "#9be36b",
+  "#d9a5ff",
 ];
-type Hover = { title: string; detail: string; x: number; y: number } | null;
+type Hover = {
+  title: string;
+  detail: string;
+  meta?: string;
+  hint?: string;
+  x: number;
+  y: number;
+} | null;
 export function GraphScene({
   items,
   edges,
@@ -34,6 +56,8 @@ export function GraphScene({
   onSelect,
   highlighted = [],
   large = false,
+  question,
+  onDismissQuestion,
 }: GraphProps) {
   const container = useRef<HTMLDivElement>(null),
     mount = useRef<HTMLDivElement>(null);
@@ -41,19 +65,33 @@ export function GraphScene({
     selectedId,
     onSelect,
     highlighted,
-    spinning: false,
+    spinning: true,
   });
+  const readingAnswer = useRef(false);
+  const lastQuestion = useRef<number | null>(null);
+  const [collapsedAnswer, setCollapsedAnswer] = useState<number | null>(null);
+  const answerCollapsed = Boolean(question && collapsedAnswer === question.id);
   const controlsRef = useRef<OrbitControls | null>(null);
   const [hover, setHover] = useState<Hover>(null),
     [failure, setFailure] = useState("");
-  const [spinning, setSpinning] = useState(false),
+  const [spinning, setSpinning] = useState(true),
     [fullscreen, setFullscreen] = useState(false),
-    [threshold, setThreshold] = useState(0),
     [focus, setFocus] = useState("");
+  const [focusedCluster, setFocusedCluster] = useState<number | null>(null);
+  const focusedClusterRef = useRef<number | null>(null);
+  const navigation = useRef<{
+    cluster: (id: number | null) => void;
+    source: (id: string) => void;
+    interrupt: () => void;
+  } | null>(null);
   useEffect(() => {
-    current.current = { selectedId, onSelect, highlighted, spinning };
-    if (controlsRef.current) controlsRef.current.autoRotate = spinning;
-  }, [selectedId, onSelect, highlighted, spinning]);
+    current.current = {
+      selectedId: focus || selectedId,
+      onSelect,
+      highlighted,
+      spinning,
+    };
+  }, [selectedId, onSelect, highlighted, spinning, focus]);
   useEffect(() => {
     const changed = () =>
       setFullscreen(document.fullscreenElement === container.current);
@@ -67,10 +105,34 @@ export function GraphScene({
     else open();
   }, []);
   const positions = useMemo(() => layoutGraph(items, edges), [items, edges]);
-  const visibleEdges = useMemo(
-    () => edges.filter((e) => e.weight >= threshold).slice(0, 1200),
-    [edges, threshold],
+  const clusters = useMemo(() => {
+    const groups = new Map<
+      number,
+      { id: number; name: string; count: number; tags: Map<string, number> }
+    >();
+    const byId = new Map(items.map((item) => [item.id, item]));
+    for (const position of positions) {
+      const item = byId.get(position.id)!;
+      const group = groups.get(position.cluster) ?? {
+        id: position.cluster,
+        name: item.title,
+        count: 0,
+        tags: new Map<string, number>(),
+      };
+      group.count++;
+      for (const tag of item.tags)
+        group.tags.set(tag, (group.tags.get(tag) ?? 0) + 1);
+      groups.set(position.cluster, group);
+    }
+    return [...groups.values()].map((group) => ({
+      ...group,
+      name: [...group.tags].sort((a, b) => b[1] - a[1])[0]?.[0] || group.name,
+    }));
+  }, [items, positions]);
+  const activeCluster = clusters.find(
+    (cluster) => cluster.id === focusedCluster,
   );
+  const visibleEdges = useMemo(() => edges.slice(0, 1200), [edges]);
   useEffect(() => {
     const host = mount.current;
     if (!host) return;
@@ -89,7 +151,7 @@ export function GraphScene({
     renderer.setClearColor("#0d1718", 1);
     renderer.domElement.setAttribute(
       "aria-label",
-      "3D knowledge graph. Drag to orbit, scroll to zoom, right-drag to pan. Use the source list below for keyboard access.",
+      "3D knowledge brain. Click a cluster to explore it. Hover a node for a summary; click again inside a cluster to open its source. Drag to orbit, scroll to zoom. Use the cluster selector and library for keyboard access.",
     );
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
@@ -99,9 +161,9 @@ export function GraphScene({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
-    controls.minDistance = 35;
+    controls.minDistance = 12;
     controls.maxDistance = 480;
-    controls.autoRotateSpeed = 0.45;
+    controls.autoRotateSpeed = 0.3;
     controls.autoRotate = current.current.spinning;
     controlsRef.current = controls;
     const graph = new THREE.Group();
@@ -137,6 +199,20 @@ export function GraphScene({
     const clusterSize = new Map<number, number>();
     for (const c of clusterOf.values())
       clusterSize.set(c, (clusterSize.get(c) ?? 0) + 1);
+    const bounds = new Map<number, THREE.Sphere>();
+    for (const cluster of clusterSize.keys()) {
+      const members = positions
+        .filter((p) => p.cluster === cluster)
+        .map((p) => points.get(p.id)!);
+      const center = new THREE.Box3()
+        .setFromPoints(members)
+        .getCenter(new THREE.Vector3());
+      const radius = Math.max(
+        6,
+        ...members.map((point) => point.distanceTo(center) + 5),
+      );
+      bounds.set(cluster, new THREE.Sphere(center, radius));
+    }
     for (const item of items) {
       const cluster = clusterOf.get(item.id) ?? 0;
       const tint =
@@ -235,6 +311,114 @@ export function GraphScene({
           ),
         );
       }
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let activeClusterId = focusedClusterRef.current;
+    if (activeClusterId !== null && !bounds.has(activeClusterId))
+      activeClusterId = null;
+    focusedClusterRef.current = activeClusterId;
+    queueMicrotask(() => {
+      setFocusedCluster(activeClusterId);
+      setHover(null);
+    });
+    let interactionUntil = 0;
+    let interacting = false;
+    let transition: {
+      from: THREE.Vector3;
+      to: THREE.Vector3;
+      targetFrom: THREE.Vector3;
+      targetTo: THREE.Vector3;
+      started: number;
+    } | null = null;
+    const overview = new THREE.Sphere(
+      new THREE.Vector3(),
+      Math.max(80, ...positions.map((p) => Math.hypot(p.x, p.y, p.z) + 6)),
+    );
+    const clusterVisibility = new Map(
+      [...bounds.keys()].map((id) => [
+        id,
+        activeClusterId === null || id === activeClusterId ? 1 : 0,
+      ]),
+    );
+    let shellVisibility = activeClusterId === null ? 1 : 0;
+    const frameBounds = (
+      sphere: THREE.Sphere,
+      animate = true,
+      retarget = false,
+    ) => {
+      const halfFov = Math.atan(
+        Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) *
+          Math.min(1, camera.aspect),
+      );
+      const distance = Math.max(
+        controls.minDistance,
+        Math.min(
+          controls.maxDistance,
+          (sphere.radius / Math.sin(halfFov)) * 1.18,
+        ),
+      );
+      const direction = camera.position
+        .clone()
+        .sub(controls.target)
+        .normalize();
+      const destination = sphere.center
+        .clone()
+        .addScaledVector(direction, distance);
+      if (animate && !reducedMotion.matches) {
+        if (retarget && transition) {
+          transition.to.copy(destination);
+          transition.targetTo.copy(sphere.center);
+          return;
+        }
+        transition = {
+          from: camera.position.clone(),
+          to: destination,
+          targetFrom: controls.target.clone(),
+          targetTo: sphere.center.clone(),
+          started: performance.now(),
+        };
+      } else {
+        transition = null;
+        camera.position.copy(destination);
+        controls.target.copy(sphere.center);
+      }
+      interactionUntil = performance.now() + FLIGHT_DURATION + 250;
+    };
+    const exploreCluster = (id: number | null) => {
+      if (id !== null && !bounds.has(id)) return;
+      activeClusterId = id;
+      focusedClusterRef.current = id;
+      setFocusedCluster(id);
+      setFocus("");
+      leave();
+      frameBounds(id === null ? overview : bounds.get(id)!);
+    };
+    const interrupt = () => {
+      transition = null;
+      interactionUntil = performance.now() + 2200;
+      controls.autoRotate = false;
+    };
+    navigation.current = {
+      cluster: exploreCluster,
+      source: (id) => {
+        const cluster = clusterOf.get(id);
+        if (cluster === undefined) return;
+        exploreCluster(cluster);
+        setFocus(id);
+      },
+      interrupt,
+    };
+    const interactionStart = () => {
+      interacting = true;
+      interrupt();
+      leave();
+    };
+    const interactionEnd = () => {
+      interacting = false;
+      interactionUntil = performance.now() + 2200;
+    };
+    controls.addEventListener("start", interactionStart);
+    controls.addEventListener("end", interactionEnd);
+    let previousAspect = 0;
     const resize = () => {
       const width = host.clientWidth,
         height = host.clientHeight;
@@ -242,6 +426,14 @@ export function GraphScene({
       renderer.setSize(width, height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      if (Math.abs(previousAspect - camera.aspect) > 0.01) {
+        frameBounds(
+          activeClusterId === null ? overview : bounds.get(activeClusterId)!,
+          previousAspect !== 0,
+          true,
+        );
+        previousAspect = camera.aspect;
+      }
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
@@ -251,6 +443,7 @@ export function GraphScene({
     const pointer = new THREE.Vector2();
     let hoveredId = "",
       hoverEdge = "",
+      hovering = false,
       dragging = false,
       downX = 0,
       downY = 0;
@@ -261,11 +454,44 @@ export function GraphScene({
         (-(event.clientY - box.top) / box.height) * 2 + 1,
       );
       raycaster.setFromCamera(pointer, camera);
-      return {
-        node: raycaster.intersectObjects(nodeMeshes, false)[0]?.object,
-        edge: raycaster.intersectObjects(edgeObjects, false)[0]?.object,
-        box,
-      };
+      const node = raycaster.intersectObjects(
+        nodeMeshes.filter(
+          (mesh) =>
+            mesh.visible &&
+            (activeClusterId === null ||
+              clusterOf.get(mesh.userData.item.id) === activeClusterId),
+        ),
+        false,
+      )[0]?.object;
+      const edge = raycaster.intersectObjects(
+        edgeObjects.filter(
+          (object) =>
+            object.visible &&
+            (activeClusterId === null ||
+              (clusterOf.get(object.userData.edge.source) === activeClusterId &&
+                clusterOf.get(object.userData.edge.target) ===
+                  activeClusterId)),
+        ),
+        false,
+      )[0]?.object;
+      let cluster = node ? clusterOf.get(node.userData.item.id) : undefined;
+      if (cluster === undefined && activeClusterId === null) {
+        let nearest = Infinity;
+        for (const [id, sphere] of bounds) {
+          const intersection = raycaster.ray.intersectSphere(
+            sphere,
+            new THREE.Vector3(),
+          );
+          if (intersection) {
+            const distance = camera.position.distanceToSquared(intersection);
+            if (distance < nearest) {
+              nearest = distance;
+              cluster = id;
+            }
+          }
+        }
+      }
+      return { node, edge, cluster, box };
     }
     const move = (event: PointerEvent) => {
       if (
@@ -275,30 +501,53 @@ export function GraphScene({
         dragging = true;
       if (dragging) {
         setHover(null);
+        hovering = false;
         hoveredId = "";
         hoverEdge = "";
         return;
       }
-      const { node, edge, box } = hit(event);
+      const { node, edge, cluster, box } = hit(event);
+      hovering = Boolean(node || edge || cluster !== undefined);
+      interactionUntil = performance.now() + 1500;
       hoveredId = node?.userData.item.id || "";
       hoverEdge = edge
         ? `${edge.userData.edge.source}:${edge.userData.edge.target}`
         : "";
-      renderer.domElement.style.cursor = node ? "pointer" : "grab";
+      renderer.domElement.style.cursor =
+        node || cluster !== undefined ? "pointer" : "grab";
       const coordinates = {
         x: Math.max(
           8,
-          Math.min(event.clientX - box.left + 12, box.width - 200),
+          Math.min(
+            event.clientX - box.left + 12,
+            box.width - Math.min(280, box.width - 16) - 8,
+          ),
         ),
-        y: Math.max(8, Math.min(event.clientY - box.top + 12, box.height - 125)),
+        y: Math.max(
+          8,
+          Math.min(event.clientY - box.top + 12, box.height - 210),
+        ),
       };
       if (node) {
         const item = node.userData.item;
-        const excerpt = item.content.trim();
+        const excerpt = (
+          item.content ||
+          item.segments
+            .map((segment: { text: string }) => segment.text)
+            .join(" ")
+        )
+          .replace(/\[\[([^\]]+)\]\]/g, "$1")
+          .replace(/\s+/g, " ")
+          .trim();
         setHover({
           title: item.title,
+          meta: `${item.type.toUpperCase()} · ${counts.get(item.id) ?? 0} connections${item.tags.length ? ` · ${item.tags.slice(0, 3).join(", ")}` : ""}`,
+          hint:
+            activeClusterId === null
+              ? "Click to explore this cluster"
+              : "Click to open source",
           detail: excerpt
-            ? `${excerpt.slice(0, 180)}${excerpt.length > 180 ? "…" : ""}`
+            ? `${excerpt.slice(0, 220)}${excerpt.length > 220 ? "…" : ""}`
             : "No content preview available.",
           ...coordinates,
         });
@@ -309,25 +558,43 @@ export function GraphScene({
           detail: `${e.explicit ? "Explicit link · " : ""}${e.basis === "semantic" ? `Meaning match ${Math.round(e.semantic * 100)}%` : `Shared wording ${Math.round(e.lexical * 100)}%`}${e.sharedTags.length ? ` · ${e.sharedTags.join(", ")}` : ""}`,
           ...coordinates,
         });
+      } else if (cluster !== undefined && activeClusterId === null) {
+        const group = clusters.find((group) => group.id === cluster);
+        setHover({
+          title: group?.name || "Cluster",
+          detail: `${clusterSize.get(cluster)} connected sources`,
+          hint: "Click to explore this cluster",
+          ...coordinates,
+        });
       } else setHover(null);
     };
     const down = (event: PointerEvent) => {
       downX = event.clientX;
       downY = event.clientY;
       dragging = false;
+      interrupt();
     };
     const up = (event: PointerEvent) => {
-      if (!dragging && event.button === 0) {
-        const node = hit(event).node;
-        if (node) openSource(node.userData.item.id);
+      if (
+        !dragging &&
+        event.isPrimary &&
+        event.button === 0 &&
+        Math.hypot(event.clientX - downX, event.clientY - downY) <= 5
+      ) {
+        const { node, cluster } = hit(event);
+        if (activeClusterId === null && cluster !== undefined)
+          exploreCluster(cluster);
+        else if (node) openSource(node.userData.item.id);
       }
       dragging = false;
     };
-    const leave = () => {
+    function leave() {
+      hovering = false;
       hoveredId = "";
       hoverEdge = "";
       setHover(null);
-    };
+      renderer.domElement.style.cursor = "grab";
+    }
     const contextLost = (event: Event) => {
       event.preventDefault();
       setFailure(
@@ -339,6 +606,7 @@ export function GraphScene({
     canvas.addEventListener("pointerdown", down);
     canvas.addEventListener("pointerup", up);
     canvas.addEventListener("pointerleave", leave);
+    canvas.addEventListener("pointercancel", leave);
     canvas.addEventListener("webglcontextlost", contextLost);
     let visible = true;
     const intersection = new IntersectionObserver((entries) => {
@@ -346,10 +614,56 @@ export function GraphScene({
     });
     intersection.observe(host);
     let frame = 0;
+    let previousTime = performance.now();
     const tick = () => {
       frame = requestAnimationFrame(tick);
+      const now = performance.now();
+      const delta = Math.min((now - previousTime) / 1000, 0.05);
+      previousTime = now;
       if (!visible || document.hidden) return;
-      controls.update();
+      controls.autoRotate =
+        current.current.spinning &&
+        !reducedMotion.matches &&
+        !interacting &&
+        !hovering &&
+        !readingAnswer.current &&
+        !transition &&
+        now >= interactionUntil;
+      if (transition) {
+        const progress = Math.min(
+          1,
+          (now - transition.started) / FLIGHT_DURATION,
+        );
+        const eased = flightProgress(now - transition.started);
+        camera.position.lerpVectors(transition.from, transition.to, eased);
+        controls.target.lerpVectors(
+          transition.targetFrom,
+          transition.targetTo,
+          eased,
+        );
+        controls.enableDamping = false;
+        controls.update(delta);
+        controls.enableDamping = true;
+        if (progress === 1) transition = null;
+      } else controls.update(delta);
+      for (const [id, visibility] of clusterVisibility) {
+        const target =
+          activeClusterId === null || activeClusterId === id ? 1 : 0;
+        clusterVisibility.set(
+          id,
+          reducedMotion.matches
+            ? target
+            : fadeVisibility(visibility, target, delta),
+        );
+      }
+      const shellTarget = activeClusterId === null ? 1 : 0;
+      shellVisibility = reducedMotion.matches
+        ? shellTarget
+        : fadeVisibility(shellVisibility, shellTarget, delta);
+      shell.visible = shellVisibility > 0;
+      for (const contour of shell.children)
+        ((contour as THREE.Line).material as THREE.LineBasicMaterial).opacity =
+          0.085 * shellVisibility;
       const connected = new Set(
         visibleEdges
           .filter((e) => e.source === hoveredId || e.target === hoveredId)
@@ -361,9 +675,22 @@ export function GraphScene({
             id === current.current.selectedId ||
             id === hoveredId ||
             current.current.highlighted.includes(id);
-        mesh.scale.setScalar(mesh.userData.size * (active ? 1.3 : 1));
+        const visibility = clusterVisibility.get(clusterOf.get(id)!) ?? 1;
+        mesh.visible = visibility > 0;
+        const size = mesh.userData.size * (active ? 1.3 : 1);
+        mesh.scale.setScalar(
+          reducedMotion.matches
+            ? size
+            : THREE.MathUtils.lerp(
+                mesh.scale.x,
+                size,
+                1 - Math.exp(-10 * delta),
+              ),
+        );
         mesh.material.opacity =
-          hoveredId && !connected.has(id) && id !== hoveredId ? 0.25 : 1;
+          visibility *
+          (hoveredId && !connected.has(id) && id !== hoveredId ? 0.25 : 1);
+        (mesh.children[0] as THREE.Sprite).material.opacity = 0.75 * visibility;
       });
       edgeObjects.forEach((object) => {
         const e = object.userData.edge,
@@ -371,12 +698,18 @@ export function GraphScene({
             ? e.source === hoveredId || e.target === hoveredId
             : current.current.highlighted.includes(e.source) &&
               current.current.highlighted.includes(e.target);
+        const visibility = Math.min(
+          clusterVisibility.get(clusterOf.get(e.source)!) ?? 1,
+          clusterVisibility.get(clusterOf.get(e.target)!) ?? 1,
+        );
+        object.visible = visibility > 0;
         (object.material as THREE.Material).opacity =
-          active || hoverEdge === `${e.source}:${e.target}`
+          visibility *
+          (active || hoverEdge === `${e.source}:${e.target}`
             ? 0.95
             : hoveredId
               ? 0.06
-              : object.userData.baseOpacity;
+              : object.userData.baseOpacity);
       });
       renderer.render(scene, camera);
     };
@@ -385,12 +718,16 @@ export function GraphScene({
       cancelAnimationFrame(frame);
       observer.disconnect();
       intersection.disconnect();
+      controls.removeEventListener("start", interactionStart);
+      controls.removeEventListener("end", interactionEnd);
+      navigation.current = null;
       controls.dispose();
       controlsRef.current = null;
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointerup", up);
       canvas.removeEventListener("pointerleave", leave);
+      canvas.removeEventListener("pointercancel", leave);
       canvas.removeEventListener("webglcontextlost", contextLost);
       scene.traverse((object) => {
         const renderable = object as THREE.Mesh;
@@ -408,10 +745,24 @@ export function GraphScene({
       renderer.dispose();
       canvas.remove();
     };
-  }, [items, edges, positions, visibleEdges, openSource]);
+  }, [items, edges, positions, clusters, visibleEdges, openSource]);
+  const questionId = question?.id;
+  const questionFocus = question?.focusItemId;
+  useEffect(() => {
+    if (questionId !== undefined) {
+      lastQuestion.current = questionId;
+      if (questionFocus) navigation.current?.source(questionFocus);
+      else navigation.current?.cluster(null);
+    } else if (lastQuestion.current !== null) {
+      lastQuestion.current = null;
+      readingAnswer.current = false;
+      navigation.current?.cluster(null);
+    }
+  }, [questionId, questionFocus, positions, visibleEdges]);
   function zoom(factor: number) {
     const controls = controlsRef.current;
     if (!controls) return;
+    navigation.current?.interrupt();
     const offset = controls.object.position
       .clone()
       .sub(controls.target)
@@ -420,21 +771,10 @@ export function GraphScene({
     controls.object.position.copy(controls.target).add(offset);
     controls.update();
   }
-  function focusNode(id: string) {
-    setFocus(id);
-    const point = positions.find((p) => p.id === id),
-      controls = controlsRef.current;
-    if (point && controls) {
-      const offset = controls.object.position.clone().sub(controls.target);
-      controls.target.set(point.x, point.y, point.z);
-      controls.object.position.copy(controls.target).add(offset);
-      controls.update();
-    }
-  }
   return (
     <div
       ref={container}
-      className={`neural-graph ${large ? "large" : "compact"}`}
+      className={`neural-graph ${large ? "large" : "compact"} ${question && !answerCollapsed ? "has-question" : ""}`}
     >
       <div className="neural-toolbar">
         <span>
@@ -452,8 +792,7 @@ export function GraphScene({
           <button
             aria-label="Reset graph view"
             onClick={() => {
-              controlsRef.current?.reset();
-              setFocus("");
+              navigation.current?.cluster(null);
             }}
           >
             <RotateCcw size={13} />
@@ -478,13 +817,82 @@ export function GraphScene({
       </div>
       <div className="neural-stage">
         <div ref={mount} className="neural-canvas" />
+        <div className="neural-cluster-nav">
+          {activeCluster ? (
+            <>
+              <button
+                className="neural-back"
+                aria-label="Back to brain"
+                title="Back to brain"
+                onClick={() => navigation.current?.cluster(null)}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <span role="status">
+                {activeCluster.name} · {activeCluster.count} sources
+              </span>
+            </>
+          ) : items.length > 0 ? (
+            <select
+              aria-label="Explore a brain cluster"
+              value=""
+              onChange={(event) =>
+                navigation.current?.cluster(Number(event.target.value))
+              }
+            >
+              <option value="" disabled>
+                Explore a cluster…
+              </option>
+              {clusters.map((cluster) => (
+                <option key={cluster.id} value={cluster.id}>
+                  {cluster.name} · {cluster.count} sources
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
         {hover && (
           <div
             className="neural-tooltip"
+            role="tooltip"
             style={{ left: hover.x, top: hover.y }}
           >
             <strong>{hover.title}</strong>
+            {hover.meta && <small>{hover.meta}</small>}
             <span>{hover.detail}</span>
+            {hover.hint && <em>{hover.hint}</em>}
+          </div>
+        )}
+        {question && (
+          <div
+            className="map-answer-container"
+            onPointerEnter={() => {
+              readingAnswer.current = true;
+            }}
+            onPointerLeave={() => {
+              readingAnswer.current = false;
+            }}
+            onFocusCapture={() => {
+              readingAnswer.current = true;
+            }}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget))
+                readingAnswer.current = false;
+            }}
+          >
+            <MapAnswer
+              question={question}
+              item={items.find(
+                (item) => item.id === question.context?.matchedItemIds[0],
+              )}
+              collapsed={answerCollapsed}
+              onCollapse={() =>
+                setCollapsedAnswer(answerCollapsed ? null : question.id)
+              }
+              onDismiss={onDismissQuestion}
+              onFocus={(id) => navigation.current?.source(id)}
+              onOpen={openSource}
+            />
           </div>
         )}
         {!items.length && (
@@ -501,51 +909,11 @@ export function GraphScene({
           </button>
         </div>
       </div>
-      <div className="neural-bottom">
-        <span>Drag to orbit · scroll to zoom · hover to explore</span>
-        <div className="strength-legend">
-          <i /> Weak <i /> Medium <i /> Strong
-        </div>
-        <label>
-          Min. strength{" "}
-          <input
-            aria-label="Minimum connection strength"
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
-          />
-          <output>{threshold.toFixed(2)}</output>
-        </label>
-        <small>
-          {items.length} sources · {visibleEdges.length} / {edges.length}{" "}
-          connections
-        </small>
-      </div>
       {failure && (
         <p className="neural-error" role="status">
           {failure}
         </p>
       )}
-      <div className="neural-source-picker">
-        <select
-          aria-label="Focus a graph source"
-          value={focus}
-          onChange={(e) => focusNode(e.target.value)}
-        >
-          <option value="">Focus a source…</option>
-          {items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.title}
-            </option>
-          ))}
-        </select>
-        <button disabled={!focus} onClick={() => openSource(focus)}>
-          Open source ↗
-        </button>
-      </div>
     </div>
   );
 }

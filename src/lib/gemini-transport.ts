@@ -14,6 +14,7 @@ export function parseModels(value: string) {
 /** Process-local cooldowns. Other server instances keep their own state. */
 export class GeminiTransport {
   private cooldowns = new Map<string, { until: number; status: number }>();
+  private preferred = new Map<string, string>();
   constructor(
     private request: typeof fetch = fetch,
     private now = Date.now,
@@ -25,8 +26,15 @@ export class GeminiTransport {
     action: string,
     body: unknown,
     timeout: number,
+    options: { attemptTimeout?: number; preferRecent?: boolean } = {},
   ) {
     const names = parseModels(models.join(","));
+    const preferenceKey = `${apiKey}:${action}`;
+    const preferred = this.preferred.get(preferenceKey);
+    if (options.preferRecent && preferred && names.includes(preferred)) {
+      names.splice(names.indexOf(preferred), 1);
+      names.unshift(preferred);
+    }
     if (!names.length)
       throw new ApiError(503, "Configure at least one Gemini model.");
     const deadline = this.now() + timeout;
@@ -57,18 +65,34 @@ export class GeminiTransport {
               "x-goog-api-key": apiKey,
             },
             body: payload,
-            signal: AbortSignal.timeout(remaining),
+            signal: AbortSignal.timeout(
+              Math.min(remaining, options.attemptTimeout ?? remaining),
+            ),
           },
         );
+        if (response.ok) {
+          // Read the body under the same deadline, before remembering a healthy model.
+          const result = await response.json();
+          if (options.preferRecent) this.preferred.set(preferenceKey, name);
+          return result;
+        }
       } catch (error) {
-        if (error instanceof Error && error.name === "TimeoutError")
+        if (
+          error instanceof Error &&
+          ["TimeoutError", "AbortError"].includes(error.name)
+        ) {
+          if (options.attemptTimeout && this.now() < deadline) {
+            statuses.push(504);
+            this.cooldowns.set(key, { until: this.now() + 10000, status: 504 });
+            continue;
+          }
           throw new ApiError(
             504,
-            "Gemini took too long. Try a smaller file or retry shortly.",
+            "Gemini took too long. Please try again shortly.",
           );
+        }
         throw error;
       }
-      if (response.ok) return response.json();
       if (![429, 404, 503].includes(response.status)) {
         // Bad requests and authentication failures aren't fixed by model rotation.
         await response.body?.cancel();
@@ -108,10 +132,28 @@ export class GeminiTransport {
         `Gemini ${name} returned ${response.status}; checking the next configured model.`,
       );
     }
-    if (statuses.includes(429))
+    if (statuses.includes(429)) {
+      const retrySeconds = Math.max(
+        1,
+        Math.ceil(
+          Math.min(
+            ...names.map(
+              (name) =>
+                this.cooldowns.get(`${apiKey}:${action}:${name}`)?.until ??
+                this.now() + 60000,
+            ),
+          ) - this.now(),
+        ) / 1000,
+      );
       throw new ApiError(
         429,
-        `No configured Gemini model is ready: quota limits were reached and fallbacks are exhausted or cooling down (${names.length} configured). Retry later or check project limits in AI Studio.`,
+        `Gemini's quota is exhausted (${names.length} configured models). Try again in about ${Math.ceil(retrySeconds)} seconds. If it persists, check your project's quota in Google AI Studio.`,
+      );
+    }
+    if (statuses.includes(504))
+      throw new ApiError(
+        504,
+        "Gemini is taking too long to respond. Please try again shortly.",
       );
     throw new ApiError(
       503,

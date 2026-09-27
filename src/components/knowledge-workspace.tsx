@@ -19,7 +19,6 @@ import {
   Network,
   Plus,
   Search,
-  ShieldCheck,
   Trash2,
   Upload,
   X,
@@ -34,7 +33,6 @@ import {
   Edge,
   buildGraph,
   locationLabel,
-  searchKnowledge,
   segmentText,
 } from "@/lib/knowledge";
 import { demoItems } from "@/lib/demo-data";
@@ -42,14 +40,11 @@ import { mockItems } from "@/lib/mock-data";
 import { edgeAppearance } from "@/lib/graph-layout";
 import { KnowledgeGraph } from "./knowledge-graph";
 import { AnswerPanel } from "./answer-panel";
-import {
-  KnowledgeAnswer,
-  answerSources,
-  extractiveAnswer,
-} from "@/lib/answers";
-import { locatorSchema, noteInput } from "@/lib/validation";
+import { KnowledgeAnswer } from "@/lib/answers";
+import { type AnswerContext } from "@/lib/answer-context";
+import { readAnswerStream } from "@/lib/answer-stream";
+import { previewLibrarySchema, noteInput } from "@/lib/validation";
 import { icons, typeLabels, type SearchHistoryEntry } from "./item-meta";
-import { RelatedMemories } from "./related-memories";
 import { NodeBrainerIcon } from "./brand-icon";
 import { RecentActivity, SearchHistory } from "./activity-pages";
 
@@ -72,30 +67,7 @@ const historySchema = z
     }),
   )
   .max(50);
-const cacheSchema = z
-  .array(
-    z.object({
-      id: z.string(),
-      title: z.string().max(180),
-      type: z.enum(["note", "pdf", "image", "link", "video"]),
-      content: z.string().max(120000),
-      tags: z.array(z.string()),
-      segments: z.array(
-        z.object({
-          id: z.string(),
-          text: z.string(),
-          kind: z.enum(["text", "transcript", "description"]),
-          locator: locatorSchema,
-        }),
-      ),
-      status: z.enum(["ready", "needs-attention"]),
-      createdAt: z.string(),
-      updatedAt: z.string(),
-      version: z.number(),
-      sample: z.boolean().optional(),
-    }),
-  )
-  .max(200);
+const cacheSchema = previewLibrarySchema;
 type Props = {
   live?: boolean;
   name?: string;
@@ -139,9 +111,6 @@ export function KnowledgeWorkspace({
   const [selectedId, setSelectedId] = useState("attention"),
     [detail, setDetail] = useState(false);
   const [view, setView] = useState<View>("memory");
-  const [relatedTab, setRelatedTab] = useState<"search" | "selected">(
-    "selected",
-  );
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   // Per-browser convenience; kept apart for the demo and the private workspace.
   const historyKey = `nodebrainer-search-history-${live ? "private" : "demo"}`;
@@ -149,6 +118,12 @@ export function KnowledgeWorkspace({
     [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<SearchResponse | null>(null),
     [searching, setSearching] = useState(false);
+  const [questionId, setQuestionId] = useState(0);
+  const [answerContext, setAnswerContext] = useState<AnswerContext | null>(
+    null,
+  );
+  const [answerError, setAnswerError] = useState("");
+  const [mapFocusId, setMapFocusId] = useState("");
   const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState("");
@@ -244,16 +219,12 @@ export function KnowledgeWorkspace({
   const neighbors = edges
     .filter((e) => e.source === selectedId || e.target === selectedId)
     .slice(0, 7);
-  // Related Memories appears on the Memory Map only once a search is running or done.
-  const relatedOpen = view === "memory" && (searching || Boolean(results));
   // Map emphasis: the explained discovery path, else the current search's top results.
   const mapHighlights = useMemo(
     () =>
       explanation?.path ??
-      (relatedTab === "search" && results
-        ? results.results.slice(0, 8).map((r) => r.itemId)
-        : undefined),
-    [explanation, relatedTab, results],
+      (results ? results.results.slice(0, 8).map((r) => r.itemId) : undefined),
+    [explanation, results],
   );
   // Labeled as suggestions on the Search History page, never shown as past searches.
   const historySuggestions = [
@@ -267,6 +238,9 @@ export function KnowledgeWorkspace({
     searchGeneration.current++;
     setResults(null);
     setAnswer(null);
+    setAnswerContext(null);
+    setAnswerError("");
+    setMapFocusId("");
     setSearching(false);
     setExplanation(null);
     setSearchedQuery("");
@@ -298,31 +272,43 @@ export function KnowledgeWorkspace({
     }
     resetSearch();
     const generation = searchGeneration.current;
+    setQuestionId(generation);
     const controller = new AbortController();
     searchRef.current = controller;
     setSearching(true);
     setDetail(false);
-    // Library searches stay in the library; every other search opens on the Memory Map.
-    setView((current) => (current === "library" ? "library" : "memory"));
-    setRelatedTab("search");
+    // Questions reveal their evidence and answer together in the Memory Map.
+    setView("memory");
     setError("");
     setQuery(value);
+    setSearchedQuery(value);
     try {
-      const data = live
-        ? await requestJson("/api/answer", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: value, type, tag: tag || undefined }),
-            signal: controller.signal,
-          })
-        : searchKnowledge(filtered, value);
+      const reveal = (retrieval: SearchResponse, context: AnswerContext) => {
+        if (searchGeneration.current !== generation) return;
+        setResults(retrieval);
+        setAnswerContext(context);
+        const first = context.matchedItemIds[0] || "";
+        setMapFocusId(first);
+        if (first) setSelectedId(first);
+      };
+      const response = await fetch("/api/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: value,
+          type,
+          tag: tag || undefined,
+          stream: true,
+          library: live ? "private" : mock ? "mock" : "demo",
+          previewItems: !live && !mock ? items : undefined,
+        }),
+        signal: controller.signal,
+      });
+      const data = await readAnswerStream(response, ({ retrieval, context }) =>
+        reveal(retrieval, context),
+      );
       if (searchGeneration.current === generation) {
-        setResults(data);
-        setAnswer(
-          live
-            ? data.answer
-            : extractiveAnswer(value, answerSources(filtered, data)),
-        );
+        setAnswer(data.answer);
         setSearchedQuery(value);
         saveHistory(
           [
@@ -344,8 +330,9 @@ export function KnowledgeWorkspace({
       if (
         (e as Error).name !== "AbortError" &&
         searchGeneration.current === generation
-      )
-        setError((e as Error).message);
+      ) {
+        setAnswerError((e as Error).message);
+      }
     } finally {
       if (searchGeneration.current === generation) setSearching(false);
     }
@@ -537,14 +524,6 @@ export function KnowledgeWorkspace({
       </button>
     </div>
   );
-  const panelFooter = (
-    <div className="panel-footer">
-      <ShieldCheck size={13} />
-      {live
-        ? "Only your account can access this library."
-        : "Demo content stays in this browser."}
-    </div>
-  );
 
   return (
     <div className="app-shell lattice-app">
@@ -705,15 +684,9 @@ export function KnowledgeWorkspace({
             </Link>
           </div>
         </header>
-        <div
-          className={`knowledge-layout ${
-            view === "memory" && relatedOpen ? "related-open" : "full-width"
-          }`}
-        >
+        <div className="knowledge-layout full-width">
           <div className={`library-panel view-${view}`}>
-            <div
-              className="page-heading"
-            >
+            <div className="page-heading">
               <div>
                 <div className="eyebrow">{viewTitles[view].toUpperCase()}</div>
                 <h1>
@@ -740,7 +713,7 @@ export function KnowledgeWorkspace({
               <div className="demo-strip">
                 <span>
                   <span className="status-dot" />
-                  Sample sources · real local search and editing
+                  Sample library · Gemini answers
                 </span>
                 <a href={authConfigured ? "/auth/login" : "/setup"}>
                   Make it yours <ArrowRight size={13} />
@@ -819,8 +792,8 @@ export function KnowledgeWorkspace({
               geminiConfigured &&
               (view === "memory" || view === "library") && (
                 <p className="answer-privacy">
-                  Your question and retrieved passages are sent to Google Gemini
-                  to compose the answer.
+                  Your question and relevant passages from your library are sent
+                  to Google Gemini to compose the answer.
                 </p>
               )}
             {loading ? (
@@ -1024,50 +997,34 @@ export function KnowledgeWorkspace({
                       {items.length} MEMORIES · {edges.length} CONNECTIONS
                     </span>
                   </div>
-                  {searching && (
-                    <div className="memory-status" role="status">
-                      <LoaderCircle size={15} className="spin" />
-                      Reading your sources and composing an answer…
-                    </div>
-                  )}
                   <KnowledgeGraph
                     large
                     items={items}
                     edges={edges}
                     selectedId={selectedId || items[0]?.id || ""}
                     onSelect={(id) => {
-                      if (!relatedOpen) return selectItem(id);
+                      if (!searchedQuery) return selectItem(id);
                       setSelectedId(id);
+                      setMapFocusId(id);
                       setExplanation(null);
-                      setRelatedTab("selected");
                     }}
                     highlighted={mapHighlights}
+                    question={
+                      searchedQuery
+                        ? {
+                            id: questionId,
+                            query: searchedQuery,
+                            loading: searching,
+                            context: answerContext,
+                            answer,
+                            error: answerError,
+                            focusItemId: mapFocusId,
+                          }
+                        : undefined
+                    }
+                    onDismissQuestion={resetSearch}
                   />
-                  <p className="memory-map-hint">
-                    {relatedOpen
-                      ? "Select a memory to see what’s related to it."
-                      : "Click a memory to open it, or search to see what’s related."}{" "}
-                    Stronger connections are thicker and brighter; weak
-                    connections are dashed. The faint brain contour is
-                    decorative.
-                  </p>
                 </section>
-                {answer && !searching && (
-                  <AnswerPanel
-                    answer={answer}
-                    query={searchedQuery}
-                    onSource={(source) => {
-                      selectItem(source.itemId);
-                      setExplanation(
-                        results?.results.find(
-                          (result) =>
-                            result.itemId === source.itemId &&
-                            result.segmentId === source.segmentId,
-                        ) || null,
-                      );
-                    }}
-                  />
-                )}
               </>
             ) : view === "activity" ? (
               <RecentActivity
@@ -1286,33 +1243,6 @@ export function KnowledgeWorkspace({
               </span>
             </footer>
           </div>
-          {view === "memory" ? (
-            <RelatedMemories
-              open={relatedOpen}
-              onClose={() => {
-                setQuery("");
-                resetSearch();
-              }}
-              items={items}
-              edges={edges}
-              selectedId={selectedId}
-              results={results}
-              searchedQuery={searchedQuery}
-              searching={searching}
-              tab={relatedTab}
-              onTab={(tab) => {
-                setRelatedTab(tab);
-                setExplanation(null);
-              }}
-              onPick={(id, result) => {
-                setSelectedId(id);
-                setExplanation(result ?? null);
-              }}
-              onOpen={selectItem}
-              explanation={explanationView || undefined}
-              footer={panelFooter}
-            />
-          ) : null}
         </div>
       </main>
       <dialog

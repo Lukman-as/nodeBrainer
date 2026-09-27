@@ -1,9 +1,10 @@
+import { indexKnowledgeItem } from "@/lib/semantic-index";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireOwner, apiError, ApiError, json, readJson } from "@/lib/http";
 import { insertItem, withoutVectors } from "@/lib/repository";
 import { KnowledgeItem, segmentText } from "@/lib/knowledge";
-import { embedSegments, extractMedia } from "@/lib/gemini";
+import { extractMedia } from "@/lib/gemini";
 import { extractArticle, validatePublicUrl } from "@/lib/safe-url";
 import { limitExpensiveRequests } from "@/lib/rate-limit";
 import { deleteAsset, uploadAsset, isStorageConfigured } from "@/lib/storage";
@@ -159,7 +160,7 @@ export async function POST(request: Request) {
       }
     }
     try {
-      item.segments = await embedSegments(item.segments, item.title);
+      item = await indexKnowledgeItem(item);
       await insertItem(ownerId, item, asset);
     } catch (error) {
       if (asset && "path" in asset)

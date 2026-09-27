@@ -8,7 +8,11 @@ import {
 } from "@/lib/repository";
 import { noteInput } from "@/lib/validation";
 import { segmentText, KnowledgeItem, buildGraph } from "@/lib/knowledge";
-import { embedSegments } from "@/lib/gemini";
+import {
+  indexKnowledgeItem,
+  isIndexed,
+  semanticEnabled,
+} from "@/lib/semantic-index";
 import { limitExpensiveRequests } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -18,7 +22,15 @@ export async function GET() {
     const owner = await requireOwner();
     const items = await listItems(owner);
     await indexMissingEmbeddings(owner, items);
-    return json({ items: items.map(withoutVectors), edges: buildGraph(items) });
+    return json({
+      items: items.map(withoutVectors),
+      edges: buildGraph(items),
+      semantic: {
+        enabled: semanticEnabled(),
+        indexed: items.filter(isIndexed).length,
+        total: items.length,
+      },
+    });
   } catch (error) {
     return apiError(error);
   }
@@ -29,17 +41,17 @@ export async function POST(request: Request) {
     await limitExpensiveRequests(owner);
     const input = noteInput.parse(await readJson(request));
     const now = new Date().toISOString();
-    const item: KnowledgeItem = {
+    const item: KnowledgeItem = await indexKnowledgeItem({
       ...input,
       tags: [...new Set(input.tags.map((t) => t.toLowerCase()))],
       id: randomUUID(),
       type: "note",
-      segments: await embedSegments(segmentText(input.content), input.title),
+      segments: segmentText(input.content),
       status: "ready",
       version: 1,
       createdAt: now,
       updatedAt: now,
-    };
+    });
     await insertItem(owner, item);
     return json({ item: withoutVectors(item) }, 201);
   } catch (error) {
