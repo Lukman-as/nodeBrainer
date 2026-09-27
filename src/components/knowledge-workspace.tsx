@@ -2,7 +2,6 @@
 /* eslint-disable @next/next/no-img-element -- Private image endpoints need browser session cookies. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import {
   Activity,
@@ -24,6 +23,7 @@ import {
   Trash2,
   Upload,
   X,
+  UserRound,
 } from "lucide-react";
 import { z } from "zod";
 import {
@@ -50,6 +50,7 @@ import {
 import { locatorSchema, noteInput } from "@/lib/validation";
 import { icons, typeLabels, type SearchHistoryEntry } from "./item-meta";
 import { RelatedMemories } from "./related-memories";
+import { NodeBrainerIcon } from "./brand-icon";
 import { RecentActivity, SearchHistory } from "./activity-pages";
 
 type View = "memory" | "activity" | "history" | "library";
@@ -555,7 +556,7 @@ export function KnowledgeWorkspace({
         >
           <span className="brand-mark">
             {/* Decorative: the link's name is the NodeBrainer text beside it. */}
-            <Image src="/icon-logo.png" alt="" width={36} height={36} />
+            <NodeBrainerIcon size={20} />
           </span>
           <span className="brand-name">
             Node<span className="brand-accent">Brainer</span>
@@ -572,13 +573,7 @@ export function KnowledgeWorkspace({
               resetSearch();
             }}
           >
-            <Image
-              className="nav-image-icon"
-              src="/icon-logo.png"
-              alt=""
-              width={22}
-              height={22}
-            />
+            <NodeBrainerIcon size={18} />
             Memory Map
           </button>
           <button
@@ -700,13 +695,13 @@ export function KnowledgeWorkspace({
             >
               <ArrowDownToLine size={17} />
             </button>
-            <Link className="profile-button" href="/setup" prefetch={false}>
-              <Image
-                src="/profile-icon.png"
-                alt="Profile and workspace settings"
-                width={32}
-                height={32}
-              />
+            <Link
+              className="profile-button"
+              href="/setup"
+              prefetch={false}
+              aria-label="Profile and workspace settings"
+            >
+              <UserRound size={17} />
             </Link>
           </div>
         </header>

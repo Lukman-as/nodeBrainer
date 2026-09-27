@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Mountain } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { NodeBrainerIcon } from "@/components/brand-icon";
 import { getAuth0, isAuthConfigured } from "@/lib/auth0";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function SetupPage() {
       </Link>
       <div className="setup-card">
         <span className="brand-mark">
-          <Mountain size={25} />
+          <NodeBrainerIcon size={25} />
         </span>
         <div className="eyebrow">MAKE IT YOURS</div>
         <h1>Connect your knowledge space.</h1>

@@ -17,7 +17,8 @@ function page(path: string, ready: boolean, session: Session) {
   const modules: Record<string, unknown> = {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "next/link": { __esModule: true, default: "a" },
-    "lucide-react": { ArrowLeft: "icon", ArrowRight: "icon", Mountain: "icon" },
+    "lucide-react": { ArrowLeft: "icon", ArrowRight: "icon" },
+    "@/components/brand-icon": { NodeBrainerIcon: "icon" },
     "@/components/knowledge-workspace": { KnowledgeWorkspace: "workspace" },
     "@/lib/auth0": {
       isAuthConfigured: () => ready,
