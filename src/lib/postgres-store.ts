@@ -98,6 +98,19 @@ export class PostgresStore {
     );
     return result.rows[0]?.document;
   }
+  /** Replaces vectors only; the version guard drops the write if the item was edited meanwhile. */
+  async setSegments(
+    ownerId: string,
+    id: string,
+    version: number,
+    segments: KnowledgeItem["segments"],
+  ) {
+    await this.pool.query(
+      `UPDATE knowledge_items SET document = jsonb_set(document, '{segments}', $4::jsonb)
+       WHERE owner_id = $1 AND id = $2 AND (document->>'version')::integer = $3`,
+      [ownerId, id, version, JSON.stringify(segments)],
+    );
+  }
   async deleteItem(ownerId: string, id: string) {
     const result = await this.pool.query<{ asset_path: string | null }>(
       "DELETE FROM knowledge_items WHERE owner_id = $1 AND id = $2 RETURNING asset_path",

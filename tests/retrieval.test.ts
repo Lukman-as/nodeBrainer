@@ -10,7 +10,7 @@ import {
 } from "../src/lib/knowledge";
 
 test("connected search finds an indirect source with its real discovery path", () => {
-  const result = searchKnowledge(demoItems, "conditional probability");
+  const result = searchKnowledge(demoItems, "prior");
   const indirect = result.results.find((r) => r.itemId === "screening");
   assert.ok(indirect);
   assert.equal(indirect.discovery, "graph");
@@ -102,4 +102,55 @@ test("semantic retrieval can find a passage without keyword overlap", () => {
   });
   assert.equal(result.results[0].itemId, item.id);
   assert.equal(result.mode, "semantic + keyword + graph");
+});
+test("related notes that also share vocabulary get a strong semantic edge", () => {
+  // Same-topic notes on gemini-embedding-001 sit near cosine 0.88; unrelated ones near 0.66.
+  const note = (id: string, embedding: number[]): KnowledgeItem => ({
+    ...demoItems[0],
+    id,
+    title: id,
+    content: id,
+    tags: [],
+    segments: [
+      { ...segmentText(id)[0], embedding, embeddingModel: "test-model" },
+    ],
+  });
+
+  const edges = buildGraph([
+    note("integrals", [1, 0, 0]),
+    note("integration", [0.88, Math.sqrt(1 - 0.88 ** 2), 0]),
+    note("carbonara", [0.66, 0, Math.sqrt(1 - 0.66 ** 2)]),
+  ]);
+  const strong = edges.find((e) => e.target === "integration");
+  assert.ok(strong && strong.basis === "semantic" && strong.weight > 0.9);
+  assert.ok(!edges.some((e) => e.target === "carbonara"));
+});
+test("keyword matching treats word forms of the same term as a match", () => {
+  const item: KnowledgeItem = {
+    ...demoItems[0],
+    id: "calc",
+    title: "Integrals",
+    content: "Integration by parts",
+    tags: [],
+    segments: segmentText("Integration by parts"),
+  };
+  assert.equal(searchKnowledge([item], "integrate").results[0]?.itemId, "calc");
+});
+test("close embeddings without shared wording do not make an edge", () => {
+  // Real case: "testing our webapp" vs a Java OOP video, cosine 0.756, no words in common.
+  const note = (id: string, content: string, embedding: number[]) => ({
+    ...demoItems[0],
+    id,
+    title: id,
+    content,
+    tags: [],
+    segments: [
+      { ...segmentText(content)[0], embedding, embeddingModel: "test-model" },
+    ],
+  });
+  const edges = buildGraph([
+    note("Test", "we are testing our webapp", [1, 0]),
+    note("OOP", "polymorphism inheritance encapsulation", [0.756, Math.sqrt(1 - 0.756 ** 2)]),
+  ]);
+  assert.equal(edges.length, 0);
 });

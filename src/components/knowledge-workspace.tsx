@@ -41,6 +41,7 @@ import {
   segmentText,
 } from "@/lib/knowledge";
 import { demoItems } from "@/lib/demo-data";
+import { edgeAppearance } from "@/lib/graph-layout";
 import { KnowledgeGraph } from "./knowledge-graph";
 import { AnswerPanel } from "./answer-panel";
 import {
@@ -1104,12 +1105,15 @@ export function KnowledgeWorkspace({
                 </ol>
                 {explanation.edges.map((edge, i) => (
                   <div className="edge-evidence" key={i}>
-                    <strong>Connection score: {edge.weight.toFixed(2)}</strong>
+                    <strong>
+                      {edgeAppearance(edge.weight).label} connection:{" "}
+                      {edge.weight.toFixed(2)}
+                    </strong>
                     <span>
                       {edge.explicit ? "Explicit [[link]] · " : ""}
                       {edge.basis === "semantic"
-                        ? `Semantic ${edge.semantic.toFixed(2)}`
-                        : `Text similarity ${edge.lexical.toFixed(2)}`}
+                        ? `Meaning match ${Math.round(edge.semantic * 100)}%`
+                        : `Shared wording ${Math.round(edge.lexical * 100)}%`}
                       {edge.sharedTags.length
                         ? ` · Shared: ${edge.sharedTags.join(", ")}`
                         : ""}
@@ -1159,6 +1163,7 @@ export function KnowledgeWorkspace({
                       <span>
                         <strong>{item.title}</strong>
                         <small>
+                          {edgeAppearance(edge.weight).label} ·{" "}
                           {edge.explicit
                             ? "Explicit link"
                             : edge.basis === "semantic"

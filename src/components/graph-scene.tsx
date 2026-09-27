@@ -290,7 +290,7 @@ export function GraphScene({
         const e = edge.userData.edge;
         setHover({
           title: `${edgeAppearance(e.weight).label} connection · ${e.weight.toFixed(2)}`,
-          detail: `${e.explicit ? "Explicit link · " : ""}${e.basis === "semantic" ? "Semantic" : "Text"} similarity${e.sharedTags.length ? ` · ${e.sharedTags.join(", ")}` : ""}`,
+          detail: `${e.explicit ? "Explicit link · " : ""}${e.basis === "semantic" ? `Meaning match ${Math.round(e.semantic * 100)}%` : `Shared wording ${Math.round(e.lexical * 100)}%`}${e.sharedTags.length ? ` · ${e.sharedTags.join(", ")}` : ""}`,
           ...coordinates,
         });
       } else setHover(null);

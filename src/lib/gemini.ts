@@ -25,17 +25,20 @@ async function callGemini(
     );
   return transport.call(key, [modelNames].flat(), action, body, timeout);
 }
-export async function embedSegments(segments: Segment[]): Promise<Segment[]> {
-  if (
-    !process.env.GEMINI_API_KEY ||
-    process.env.ENABLE_GEMINI_EMBEDDINGS !== "true"
-  )
-    return segments;
+export const embeddingsEnabled = () =>
+  Boolean(process.env.GEMINI_API_KEY) &&
+  process.env.ENABLE_GEMINI_EMBEDDINGS === "true";
+/** The title is embedded with every passage so a note's topic is carried into all of its vectors. */
+export async function embedSegments(
+  segments: Segment[],
+  title: string,
+): Promise<Segment[]> {
+  if (!embeddingsEnabled() || !segments.length) return segments;
   const name = embeddingModel();
   const result = await callGemini(name, "batchEmbedContents", {
     requests: segments.map((s) => ({
       model: `models/${name}`,
-      content: { parts: [{ text: s.text.slice(0, 5000) }] },
+      content: { parts: [{ text: `${title}\n\n${s.text}`.slice(0, 5000) }] },
       outputDimensionality: 768,
       ...(name === "gemini-embedding-001"
         ? { taskType: "RETRIEVAL_DOCUMENT" }
@@ -59,11 +62,7 @@ export async function embedSegments(segments: Segment[]): Promise<Segment[]> {
   });
 }
 export async function embedQuery(query: string) {
-  if (
-    !process.env.GEMINI_API_KEY ||
-    process.env.ENABLE_GEMINI_EMBEDDINGS !== "true"
-  )
-    return undefined;
+  if (!embeddingsEnabled()) return undefined;
   const name = embeddingModel();
   const data = await callGemini(name, "embedContent", {
     content: { parts: [{ text: query }] },

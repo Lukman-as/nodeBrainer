@@ -159,7 +159,7 @@ export async function POST(request: Request) {
       }
     }
     try {
-      item.segments = await embedSegments(item.segments);
+      item.segments = await embedSegments(item.segments, item.title);
       await insertItem(ownerId, item, asset);
     } catch (error) {
       if (asset && "path" in asset)

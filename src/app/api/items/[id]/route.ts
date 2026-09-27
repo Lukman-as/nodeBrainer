@@ -29,7 +29,7 @@ export async function PATCH(request: Request, context: Context) {
         409,
         "This note changed in another window. Reload before saving again.",
       );
-    const segments = await embedSegments(segmentText(input.content));
+    const segments = await embedSegments(segmentText(input.content), input.title);
     const item = await updateNote(ownerId, id, version, {
       ...input,
       tags: [...new Set(input.tags.map((t) => t.toLowerCase()))],
