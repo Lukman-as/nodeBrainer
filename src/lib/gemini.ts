@@ -4,7 +4,11 @@ import { AnswerCache } from "./answer-cache";
 import { z } from "zod";
 import { extractionSchema } from "./validation";
 import { ApiError } from "./http";
-import { AnswerSource, KnowledgeAnswer, validateAnswerDraft } from "./answers";
+import { AnswerSource, KnowledgeAnswer } from "./answers";
+import {
+  answerResponseSchema,
+  parseGeminiAnswer,
+} from "./gemini-answer-format";
 
 import type { AnswerContext } from "./answer-context";
 
@@ -102,6 +106,7 @@ export async function generateGroundedAnswer(
   const key = createHash("sha256")
     .update(
       JSON.stringify({
+        formatVersion: 2,
         scope,
         credential: process.env.GEMINI_API_KEY,
         names,
@@ -148,22 +153,24 @@ async function generateAnswer(
       ],
       generationConfig: {
         responseMimeType: "application/json",
+        responseJsonSchema: answerResponseSchema(sources),
         temperature: 0.15,
-        maxOutputTokens: 1200,
+        maxOutputTokens: 4096,
       },
     },
     20000,
     { attemptTimeout: 8000, preferRecent: true },
   );
-  const text = result.candidates?.[0]?.content?.parts
-    ?.map((p: { text?: string }) => p.text || "")
-    .join("");
   try {
-    return validateAnswerDraft(JSON.parse(text), sources);
-  } catch {
-    throw new ApiError(
-      502,
-      "The answer could not be verified against its source IDs. Please try again.",
-    );
+    return parseGeminiAnswer(result, sources);
+  } catch (error) {
+    // Log the category and provider status, never source text or credentials.
+    console.warn("Gemini answer rejected:", {
+      reason:
+        error instanceof ApiError ? error.message : "Unexpected response error",
+      finishReason: result.candidates?.[0]?.finishReason || "missing",
+      outputTokens: result.usageMetadata?.candidatesTokenCount,
+    });
+    throw error;
   }
 }
