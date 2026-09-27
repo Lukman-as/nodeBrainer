@@ -19,6 +19,7 @@ import {
 } from "@/lib/graph-motion";
 import { edgeAppearance, layoutGraph } from "@/lib/graph-layout";
 import { MapAnswer } from "./map-answer";
+import { NodeBrainerIcon } from "./brand-icon";
 import type { GraphProps } from "./knowledge-graph";
 const colors = {
   note: "#b8e89f",
@@ -57,7 +58,8 @@ export function GraphScene({
   highlighted = [],
   large = false,
   question,
-  onDismissQuestion,
+  searchBar,
+  searchNote,
 }: GraphProps) {
   const container = useRef<HTMLDivElement>(null),
     mount = useRef<HTMLDivElement>(null);
@@ -66,11 +68,16 @@ export function GraphScene({
     onSelect,
     highlighted,
     spinning: true,
+    idle: true,
+    searching: false,
   });
   const readingAnswer = useRef(false);
   const lastQuestion = useRef<number | null>(null);
   const [collapsedAnswer, setCollapsedAnswer] = useState<number | null>(null);
   const answerCollapsed = Boolean(question && collapsedAnswer === question.id);
+  // Dismissing hides the answer card only; clearing the search is a separate action.
+  const [dismissedAnswer, setDismissedAnswer] = useState<number | null>(null);
+  const answerDismissed = Boolean(question && dismissedAnswer === question.id);
   const controlsRef = useRef<OrbitControls | null>(null);
   const [hover, setHover] = useState<Hover>(null),
     [failure, setFailure] = useState("");
@@ -78,6 +85,8 @@ export function GraphScene({
     [fullscreen, setFullscreen] = useState(false),
     [focus, setFocus] = useState("");
   const [focusedCluster, setFocusedCluster] = useState<number | null>(null);
+  // The idle brain: no question and no cluster open, so the search bar sits centre stage.
+  const landing = !question && focusedCluster === null;
   const focusedClusterRef = useRef<number | null>(null);
   const navigation = useRef<{
     cluster: (id: number | null) => void;
@@ -90,8 +99,10 @@ export function GraphScene({
       onSelect,
       highlighted,
       spinning,
+      idle: landing,
+      searching: Boolean(question),
     };
-  }, [selectedId, onSelect, highlighted, spinning, focus]);
+  }, [selectedId, onSelect, highlighted, spinning, focus, landing, question]);
   useEffect(() => {
     const changed = () =>
       setFullscreen(document.fullscreenElement === container.current);
@@ -133,6 +144,11 @@ export function GraphScene({
     (cluster) => cluster.id === focusedCluster,
   );
   const visibleEdges = useMemo(() => edges.slice(0, 1200), [edges]);
+  // Real Louvain groups only; a lone unconnected item is not a topic.
+  const topicSuggestions = clusters
+    .filter((cluster) => cluster.count > 1)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
   useEffect(() => {
     const host = mount.current;
     if (!host) return;
@@ -340,6 +356,8 @@ export function GraphScene({
       ]),
     );
     let shellVisibility = activeClusterId === null ? 1 : 0;
+    // 1 while the brain idles behind the search bar; eases to 0 once it is in use.
+    let idleLevel = current.current.idle ? 1 : 0;
     const frameBounds = (
       sphere: THREE.Sphere,
       animate = true,
@@ -615,6 +633,9 @@ export function GraphScene({
     intersection.observe(host);
     let frame = 0;
     let previousTime = performance.now();
+    // An answer panel laid over the canvas covers part of it; shift the projection centre
+    // into the uncovered area (px, eased) so the focused cluster stays in view.
+    const viewShift = { x: 0, y: 0, tx: 0, ty: 0, measured: 0 };
     const tick = () => {
       frame = requestAnimationFrame(tick);
       const now = performance.now();
@@ -661,9 +682,19 @@ export function GraphScene({
         ? shellTarget
         : fadeVisibility(shellVisibility, shellTarget, delta);
       shell.visible = shellVisibility > 0;
+      const idleTarget = current.current.idle ? 1 : 0;
+      idleLevel = reducedMotion.matches
+        ? idleTarget
+        : fadeVisibility(idleLevel, idleTarget, delta);
+      // Idle: a quiet backdrop at ~40%. Searching: unrelated memories fall away.
+      const idleDim = 1 - 0.6 * idleLevel;
+      const focusResults =
+        current.current.searching &&
+        current.current.highlighted.length > 0 &&
+        !hoveredId;
       for (const contour of shell.children)
         ((contour as THREE.Line).material as THREE.LineBasicMaterial).opacity =
-          0.085 * shellVisibility;
+          0.085 * shellVisibility * (1 - 0.5 * idleLevel);
       const connected = new Set(
         visibleEdges
           .filter((e) => e.source === hoveredId || e.target === hoveredId)
@@ -687,10 +718,13 @@ export function GraphScene({
                 1 - Math.exp(-10 * delta),
               ),
         );
-        mesh.material.opacity =
-          visibility *
-          (hoveredId && !connected.has(id) && id !== hoveredId ? 0.25 : 1);
-        (mesh.children[0] as THREE.Sprite).material.opacity = 0.75 * visibility;
+        const lit = id === hoveredId || connected.has(id);
+        const emphasis =
+          (hoveredId && !lit ? 0.25 : focusResults && !active ? 0.12 : 1) *
+          (lit ? 1 : idleDim);
+        mesh.material.opacity = visibility * emphasis;
+        (mesh.children[0] as THREE.Sprite).material.opacity =
+          0.75 * visibility * emphasis;
       });
       edgeObjects.forEach((object) => {
         const e = object.userData.edge,
@@ -709,8 +743,41 @@ export function GraphScene({
             ? 0.95
             : hoveredId
               ? 0.06
-              : object.userData.baseOpacity);
+              : focusResults
+                ? 0.03
+                : object.userData.baseOpacity * idleDim);
       });
+      if (now - viewShift.measured > 200) {
+        viewShift.measured = now;
+        const panel = container.current?.querySelector<HTMLElement>(
+          ".map-answer:not(.is-collapsed)",
+        );
+        const box = host.getBoundingClientRect();
+        const cover = panel?.getBoundingClientRect();
+        const sheet = Boolean(cover && cover.width >= box.width * 0.8);
+        viewShift.tx =
+          cover && !sheet ? Math.max(0, box.right - cover.left) / 2 : 0;
+        viewShift.ty =
+          cover && sheet ? Math.max(0, box.bottom - cover.top) / 2 : 0;
+      }
+      viewShift.x = reducedMotion.matches
+        ? viewShift.tx
+        : fadeVisibility(viewShift.x, viewShift.tx, delta);
+      viewShift.y = reducedMotion.matches
+        ? viewShift.ty
+        : fadeVisibility(viewShift.y, viewShift.ty, delta);
+      if (viewShift.x || viewShift.y) {
+        const width = host.clientWidth,
+          height = host.clientHeight;
+        camera.setViewOffset(
+          width,
+          height,
+          viewShift.x,
+          viewShift.y,
+          width,
+          height,
+        );
+      } else if (camera.view?.enabled) camera.clearViewOffset();
       renderer.render(scene, camera);
     };
     tick();
@@ -774,7 +841,7 @@ export function GraphScene({
   return (
     <div
       ref={container}
-      className={`neural-graph ${large ? "large" : "compact"} ${question && !answerCollapsed ? "has-question" : ""}`}
+      className={`neural-graph ${large ? "large" : "compact"} ${question && !answerCollapsed && !answerDismissed ? "has-question" : ""} ${landing ? "is-landing" : "is-docked"}`}
     >
       <div className="neural-toolbar">
         <span>
@@ -782,6 +849,9 @@ export function GraphScene({
           KNOWLEDGE BRAIN
         </span>
         <div>
+          <span className="neural-count">
+            {items.length} memories · {edges.length} connections
+          </span>
           <button
             aria-label={spinning ? "Pause rotation" : "Auto rotate"}
             aria-pressed={spinning}
@@ -817,6 +887,33 @@ export function GraphScene({
       </div>
       <div className="neural-stage">
         <div ref={mount} className="neural-canvas" />
+        {searchBar && (
+          <div className="map-landing">
+            <div className="map-landing-inner">
+              <h1 className="map-landing-title">
+                <NodeBrainerIcon size={landing ? 34 : 16} />
+                <span>
+                  Node<span className="brand-accent">Brainer</span>
+                </span>
+              </h1>
+              {searchBar}
+              {landing && searchNote}
+              {landing && topicSuggestions.length > 0 && (
+                <nav className="map-topics" aria-label="Explore a topic">
+                  {topicSuggestions.map((cluster) => (
+                    <button
+                      key={cluster.id}
+                      onClick={() => navigation.current?.cluster(cluster.id)}
+                    >
+                      {cluster.name}
+                      <span>{cluster.count}</span>
+                    </button>
+                  ))}
+                </nav>
+              )}
+            </div>
+          </div>
+        )}
         <div className="neural-cluster-nav">
           {activeCluster ? (
             <>
@@ -863,7 +960,15 @@ export function GraphScene({
             {hover.hint && <em>{hover.hint}</em>}
           </div>
         )}
-        {question && (
+        {question && answerDismissed && (
+          <button
+            className="map-answer-reopen"
+            onClick={() => setDismissedAnswer(null)}
+          >
+            Show answer
+          </button>
+        )}
+        {question && !answerDismissed && (
           <div
             className="map-answer-container"
             onPointerEnter={() => {
@@ -889,7 +994,11 @@ export function GraphScene({
               onCollapse={() =>
                 setCollapsedAnswer(answerCollapsed ? null : question.id)
               }
-              onDismiss={onDismissQuestion}
+              onDismiss={() => {
+                // The card unmounts under the pointer, so pointerleave never fires.
+                readingAnswer.current = false;
+                setDismissedAnswer(question.id);
+              }}
               onFocus={(id) => navigation.current?.source(id)}
               onOpen={openSource}
             />

@@ -1,11 +1,17 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;750;800&display=swap");
 
 :root {
-  --paper: #f7f8fa;
-  --ink: #24293a;
-  --muted: #787e8d;
-  --line: #e9ebef;
-  --accent: #667655;
+  /* Dark green theme, shared by every page and the 3D brain. */
+  --paper: #0d1718;
+  --surface: #10221f;
+  --surface-2: #142a26;
+  --ink: #e3f0df;
+  --muted: #8fb09f;
+  --dim: #6f8f7f;
+  --line: #a3d6be1f;
+  --line-strong: #779b8559;
+  --accent: #b8e89f;
+  color-scheme: dark;
   --font-body: "DM Sans", sans-serif;
   --font-heading: "Manrope", sans-serif;
 }
@@ -30,7 +36,7 @@ a {
 }
 a:focus-visible,
 button:focus-visible {
-  outline: 3px solid #9b80d5;
+  outline: 3px solid #b8e89f;
   outline-offset: 5px;
 }
 h1,
@@ -3561,4 +3567,907 @@ html[data-splash-seen] .splash-screen {
   .neural-canvas {
     transition: none;
   }
+}
+
+/* ============================================================================
+   Memory Map: an immersive, full-viewport brain. Every rule below is scoped to
+   .map-immersive (app shell) or .map-home (page); other views are untouched.
+   ========================================================================== */
+.lattice-app.map-immersive {
+  --answer-w: clamp(360px, 38vw, 560px);
+  --map-top: 72px;
+  background: #0d1718;
+}
+.lattice-app.map-immersive .main {
+  position: relative;
+  margin-left: 0;
+}
+.lattice-app.map-immersive .knowledge-layout {
+  min-height: 100vh;
+}
+.lattice-app.map-immersive .library-panel.map-home {
+  position: relative;
+  max-width: none;
+  padding: 0;
+  height: 100vh;
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+}
+.map-home .memory-map {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.map-home .neural-graph {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.map-home .neural-graph.large .neural-stage {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* Top controls float over the brain instead of sitting on a white strip. */
+.lattice-app.map-immersive .topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 64px;
+  padding: 0 18px;
+  border: 0;
+  background: linear-gradient(#0d1718e6, #0d171800);
+  color: #b5d3c0;
+  pointer-events: none;
+}
+.lattice-app.map-immersive .topbar > * {
+  pointer-events: auto;
+}
+.lattice-app.map-immersive .topbar > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lattice-app .topbar .breadcrumb,
+.lattice-app .topbar .slash {
+  color: #5f7d6e;
+}
+.lattice-app .topbar .icon-button,
+.lattice-app .profile-button {
+  color: #8fb09f;
+  background: transparent;
+  border-color: #a3d6be26;
+}
+.lattice-app .topbar .icon-button:hover,
+.lattice-app .profile-button:hover {
+  color: #d6f5c9;
+  background: #a3d6be1a;
+}
+.lattice-app.map-immersive .map-menu {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #a3d6be26;
+  background: #10221fb3;
+}
+.lattice-app .topbar-add {
+  background: #10221fcc;
+  border: 1px solid #779b8559;
+  color: #d6f5c9;
+}
+.lattice-app .topbar-add:hover {
+  border-color: #b8e89f80;
+}
+.lattice-app .preview-pill {
+  background: #ffffff08;
+  border-color: #a3d6be26;
+  color: #8fb09f;
+}
+.map-make-yours {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #b8e89f;
+  white-space: nowrap;
+}
+/* Notices and errors become toasts instead of pushing the brain down. */
+.map-home > .notice,
+.map-home > .error-message {
+  position: absolute;
+  top: var(--map-top);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  background: #10221ff2;
+  border: 1px solid #779b8559;
+  color: #d5e8d9;
+}
+
+/* Graph controls: counter and view buttons bottom-left, zoom bottom-right. */
+.map-home .neural-graph.large .neural-toolbar {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 3;
+  gap: 14px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 10px;
+  background: #0d1718b3;
+}
+.map-home .neural-graph.large .neural-toolbar > span {
+  font-size: 9px;
+}
+.neural-toolbar > div {
+  align-items: center;
+}
+.neural-count {
+  margin-right: 10px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #7f9e8e;
+  white-space: nowrap;
+}
+.map-home .neural-zoom {
+  right: 16px;
+  bottom: 14px;
+}
+.map-home .neural-cluster-nav {
+  top: var(--map-top);
+  left: 16px;
+  right: 16px;
+}
+/* Below the docked search bar. */
+.map-home .neural-graph.is-docked .neural-cluster-nav {
+  top: calc(var(--map-top) + 80px);
+}
+
+/* Title + search: centred over the idle brain, docked near the top once in use. */
+.map-landing {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  transition: right 550ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.map-landing-inner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(620px, calc(100% - 32px));
+  transform: translate(-50%, -62%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  transition:
+    top 550ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 550ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 550ms cubic-bezier(0.22, 1, 0.36, 1),
+    gap 550ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.is-docked .map-landing-inner {
+  top: var(--map-top);
+  width: min(520px, calc(100% - 24px));
+  transform: translate(-50%, 0);
+  gap: 8px;
+}
+.map-landing-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: #e3f0df;
+  font-size: clamp(34px, 5vw, 54px);
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 1;
+  text-shadow: 0 2px 24px #0d1718;
+  transition:
+    font-size 550ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 550ms ease;
+}
+.map-landing-title .brand-accent {
+  color: #b8e89f;
+}
+.is-docked .map-landing-title {
+  font-size: 15px;
+  letter-spacing: 0;
+  gap: 6px;
+  opacity: 0.85;
+}
+.map-landing .search-form {
+  pointer-events: auto;
+  width: 100%;
+  margin: 0;
+  padding: 10px 10px 10px 20px;
+  border-radius: 14px;
+  border: 1px solid #779b8559;
+  background: #10221fe0;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 40px #0006;
+  color: #8fb09f;
+  transition: padding 550ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.map-landing .search-form:focus-within {
+  border-color: #b8e89f99;
+}
+.map-landing .search-form input {
+  font-size: 17px;
+  color: #e3f0df;
+}
+.map-landing .search-form input::placeholder {
+  color: #7f9e8e;
+}
+.map-landing .search-form .icon-button {
+  color: #8fb09f;
+}
+.map-landing .search-form .icon-button:hover {
+  background: #a3d6be20;
+  color: #d6f5c9;
+}
+.is-docked .map-landing .search-form {
+  padding: 5px 6px 5px 14px;
+}
+.is-docked .map-landing .search-form input {
+  font-size: 14px;
+}
+.map-landing .answer-privacy {
+  margin: -6px 0 0;
+  color: #7f9e8e;
+  font-size: 11px;
+  text-align: center;
+}
+.map-topics {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.map-topics button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #a3d6be26;
+  background: #0d1718b3;
+  color: #b5d3c0;
+  font-size: 12px;
+}
+.map-topics button:hover {
+  border-color: #b8e89f66;
+  color: #e3f0df;
+}
+.map-topics button span {
+  color: #6f8f7f;
+  font-size: 10px;
+}
+.map-landing button:focus-visible {
+  outline: 2px solid #b8e89f;
+  outline-offset: 2px;
+}
+/* The bar's own border shows focus; no second box around the input. */
+.map-landing .search-form input:focus-visible {
+  outline: none;
+}
+.lattice-app .sidebar :is(a, button):focus-visible,
+.lattice-app .topbar :is(a, button):focus-visible {
+  outline: 2px solid #b8e89f;
+  outline-offset: 2px;
+}
+
+/* Answer panel: overlays the right of the brain; the canvas keeps its full size
+   (graph-scene shifts the projection centre into the uncovered area). */
+.map-home .neural-graph.has-question .neural-canvas {
+  right: 0;
+  bottom: 0;
+}
+.map-home .neural-graph.has-question .map-landing {
+  right: calc(var(--answer-w) + 16px);
+}
+.map-home .neural-graph.has-question .neural-cluster-nav,
+.map-home .neural-graph.has-question .neural-zoom {
+  right: calc(var(--answer-w) + 32px);
+}
+.map-home .map-answer:not(.is-collapsed) {
+  top: var(--map-top);
+  right: 16px;
+  transform: none;
+  width: var(--answer-w);
+  max-height: calc(100% - var(--map-top) - 16px);
+}
+.map-home .map-answer.is-collapsed {
+  right: 60px;
+  bottom: 14px;
+}
+.map-answer-reopen {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid #779b8559;
+  background: #10221fe0;
+  color: #b8e89f;
+  font-size: 12px;
+}
+.map-home .map-answer-reopen {
+  top: var(--map-top);
+  right: 16px;
+}
+
+/* Sidebar: an overlay drawer on the Memory Map, never resizing the brain. */
+.lattice-app.map-immersive .sidebar {
+  position: fixed;
+  top: 10px;
+  bottom: 10px;
+  left: 10px;
+  z-index: 40;
+  width: 232px;
+  height: auto;
+  padding: 12px 14px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow-y: auto;
+  background: #0f1d1bf2;
+  backdrop-filter: blur(18px);
+  border: 1px solid #779b8540;
+  border-radius: 14px;
+  box-shadow: 0 18px 50px #0008;
+  color: #c7dbcb;
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lattice-app.map-immersive.drawer-hidden .sidebar {
+  transform: translateX(calc(-100% - 20px));
+  visibility: hidden;
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s 280ms;
+}
+.drawer-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.lattice-app .sidebar .icon-button {
+  position: relative;
+  color: #8fb09f;
+}
+.lattice-app .sidebar .icon-button:hover {
+  color: #d6f5c9;
+  background: #a3d6be1a;
+}
+.lattice-app .brand {
+  color: #e3f0df;
+}
+.lattice-app.map-immersive .brand {
+  font-size: 24px;
+}
+.lattice-app .brand-mark {
+  background: #ffffff0d;
+}
+.lattice-app .nav-label {
+  color: #5f7d6e;
+}
+.lattice-app .nav-item {
+  position: relative;
+  color: #a9c4b4;
+}
+.lattice-app .nav-item:hover {
+  background: #a3d6be14;
+}
+.lattice-app .nav-item.active {
+  background: #b8e89f1f;
+  color: #e3f0df;
+}
+.lattice-app .nav-count {
+  color: #6f8f7f;
+}
+.lattice-app .profile {
+  border-top-color: #a3d6be1f;
+  color: #c7dbcb;
+}
+.lattice-app .profile small {
+  color: #6f8f7f;
+}
+.lattice-app .avatar {
+  background: #ffffff12;
+  color: #c7dbcb;
+}
+.lattice-app .signout,
+.lattice-app .signin-icon {
+  position: relative;
+  color: #b5d3c0;
+}
+.drawer-backdrop {
+  display: none;
+}
+
+/* Desktop: the drawer can shrink to a compact icon rail with hover/focus labels. */
+@media (min-width: 851px) {
+  .lattice-app.map-immersive.drawer-compact .sidebar {
+    width: 64px;
+    padding: 12px 8px 0;
+    overflow: visible;
+  }
+  .map-immersive.drawer-compact .drawer-controls {
+    flex-direction: column;
+    align-items: center;
+  }
+  .lattice-app.map-immersive.drawer-compact .brand {
+    font-size: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .lattice-app.map-immersive.drawer-compact .brand-mark {
+    margin: 0;
+  }
+  .lattice-app.map-immersive.drawer-compact .nav-label,
+  .lattice-app.map-immersive.drawer-compact .nav-count,
+  .lattice-app.map-immersive.drawer-compact .profile > div {
+    display: none;
+  }
+  .lattice-app.map-immersive.drawer-compact .nav-item,
+  .lattice-app.map-immersive.drawer-compact .library-subnav .nav-item {
+    font-size: 0;
+    gap: 0;
+    justify-content: center;
+    padding: 11px;
+  }
+  .lattice-app.map-immersive.drawer-compact .sidebar-nav {
+    margin-top: 14px;
+  }
+  .lattice-app.map-immersive.drawer-compact .profile {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0;
+  }
+  .lattice-app.map-immersive.drawer-compact .signout {
+    margin: 0;
+    font-size: 9px;
+  }
+  .map-immersive.drawer-compact .sidebar [data-label]:hover::after,
+  .map-immersive.drawer-compact .sidebar [data-label]:focus-visible::after {
+    content: attr(data-label);
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    padding: 5px 9px;
+    border-radius: 6px;
+    border: 1px solid #779b8559;
+    background: #10221f;
+    color: #e3f0df;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+}
+
+/* Tablet and mobile: a normal full-height drawer with a backdrop, no icon rail. */
+@media (max-width: 850px) {
+  .lattice-app.map-immersive .sidebar {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(290px, 86vw);
+    height: auto;
+    padding: 12px 16px 0;
+    border-radius: 0 14px 14px 0;
+  }
+  .lattice-app.map-immersive .brand {
+    font-size: 24px;
+  }
+  .lattice-app.map-immersive .brand-mark {
+    margin-right: 8px;
+  }
+  .lattice-app.map-immersive .sidebar nav {
+    display: block;
+    margin: 0;
+  }
+  .lattice-app.map-immersive .nav-item {
+    width: 100%;
+    font-size: 12px;
+    gap: 12px;
+    padding: 11px 10px;
+  }
+  .lattice-app.map-immersive .nav-label,
+  .lattice-app.map-immersive .sidebar-nav .nav-label {
+    display: block;
+  }
+  .lattice-app.map-immersive .nav-count {
+    display: inline;
+  }
+  .lattice-app.map-immersive .type-navigation {
+    display: block;
+  }
+  .lattice-app.map-immersive .profile {
+    display: flex;
+  }
+  .drawer-width {
+    display: none;
+  }
+  .map-immersive .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: #0009;
+  }
+}
+@media (max-width: 600px) {
+  .map-make-yours,
+  .neural-count {
+    display: none;
+  }
+  .lattice-app.map-immersive .topbar {
+    padding: 0 10px;
+  }
+  /* Only the menu button on the left; the view name has no room here. */
+  .lattice-app.map-immersive .topbar > div:first-child {
+    font-size: 0;
+  }
+}
+/* Small screens: the answer becomes a bottom sheet; the picture shifts up instead. */
+@media (max-width: 700px) {
+  .map-home .map-answer:not(.is-collapsed) {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 55%;
+    border-radius: 16px 16px 0 0;
+  }
+  .map-home .neural-graph.has-question .map-landing {
+    right: 0;
+  }
+  .map-home .neural-graph.has-question .neural-cluster-nav {
+    right: 16px;
+  }
+  .map-home .neural-graph.has-question .neural-zoom {
+    right: 16px;
+    bottom: calc(55% + 10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-landing,
+  .map-landing-inner,
+  .map-landing-title,
+  .map-landing .search-form,
+  .lattice-app.map-immersive .sidebar,
+  .lattice-app.map-immersive.drawer-hidden .sidebar {
+    transition: none;
+  }
+}
+
+/* ============================================================================
+   Dark green theme for the rest of the app (Library, Activity, History, item
+   pages, dialogs, setup), matching the Memory Map. Colours come from :root.
+   ========================================================================== */
+.lattice-app,
+.setup-page {
+  background: var(--paper);
+  color: var(--ink);
+}
+.lattice-app .sidebar {
+  background: #0f1d1b;
+  border-right: 1px solid var(--line);
+  color: #c7dbcb;
+}
+.lattice-app .topbar {
+  background: #0d1718e6;
+  border-bottom-color: var(--line);
+  color: #b5d3c0;
+  backdrop-filter: blur(10px);
+}
+.lattice-app h1,
+.lattice-app h2,
+.lattice-app h3,
+.content-dialog h2,
+.setup-page h1,
+.setup-page h2 {
+  color: var(--ink);
+}
+.lattice-app .eyebrow,
+.content-dialog .eyebrow,
+.setup-page .eyebrow {
+  color: #9fcf88;
+}
+.lattice-app p,
+.lattice-app .page-heading p,
+.lattice-app .section-heading > span,
+.lattice-app .search-meta,
+.lattice-app footer,
+.lattice-app footer span,
+.setup-page p {
+  color: var(--muted);
+}
+.lattice-app footer {
+  border-top-color: var(--line);
+}
+.lattice-app .icon-button {
+  color: var(--muted);
+}
+.lattice-app .icon-button:hover,
+.content-dialog .icon-button:hover {
+  background: #a3d6be1a;
+  color: #d6f5c9;
+}
+.lattice-app .button.dark,
+.content-dialog .button.dark,
+.setup-page .button.dark {
+  background: var(--accent);
+  color: #10221f;
+}
+.lattice-app .topbar .topbar-add {
+  background: #10221fcc;
+  color: #d6f5c9;
+}
+.lattice-app .text-action,
+.lattice-app .source-link,
+.lattice-app .back-link,
+.setup-page .back-link {
+  color: var(--accent);
+}
+
+/* Search, filters, form fields */
+.lattice-app .search-form {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--muted);
+}
+.lattice-app .search-form input {
+  color: var(--ink);
+}
+.lattice-app .search-form input::placeholder,
+.content-dialog ::placeholder {
+  color: var(--dim);
+}
+.lattice-app .search-submit {
+  background: var(--accent);
+  color: #10221f;
+}
+.lattice-app .filter-tabs button {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.lattice-app .filter-tabs button.selected {
+  background: #b8e89f1f;
+  border-color: #b8e89f40;
+  color: var(--ink);
+}
+.lattice-app select,
+.content-dialog input:not([type="checkbox"]),
+.content-dialog textarea {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+
+/* Cards and lists */
+.lattice-app .knowledge-card,
+.lattice-app .related-item,
+.lattice-app .quick-add button,
+.lattice-app .activity-stats > div,
+.lattice-app .timeline,
+.lattice-app .history-list,
+.lattice-app .history-suggestions button {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.lattice-app .knowledge-card:hover,
+.lattice-app .related-item:hover,
+.lattice-app .quick-add button:hover {
+  border-color: var(--line-strong);
+}
+.lattice-app .knowledge-card.current {
+  border-color: #b8e89f66;
+}
+.lattice-app .knowledge-card p,
+.lattice-app .card-footer,
+.lattice-app .content-type,
+.lattice-app .related-item small,
+.lattice-app .activity-stats span,
+.lattice-app .timeline-day,
+.lattice-app .history-query small {
+  color: var(--muted);
+}
+.lattice-app .activity-stats strong,
+.lattice-app .timeline-body strong,
+.lattice-app .history-query strong,
+.lattice-app .related-item strong {
+  color: var(--ink);
+}
+.lattice-app .timeline li + li,
+.lattice-app .history-list li + li {
+  border-top-color: var(--line);
+}
+.lattice-app .timeline-body small,
+.lattice-app .timeline-body span,
+.lattice-app .timeline time,
+.lattice-app .history-query,
+.lattice-app .history-toolbar p,
+.lattice-app .detail-connections h3 {
+  color: var(--muted);
+}
+.lattice-app .timeline-body:hover strong,
+.lattice-app .history-query:hover strong,
+.lattice-app .history-again {
+  color: var(--accent);
+}
+.lattice-app .tag-pill,
+.lattice-app .detail-tags span,
+.lattice-app .graph-badge {
+  background: #b8e89f14;
+  color: #b5d3c0;
+}
+.lattice-app .content-icon,
+.lattice-app .timeline-icon {
+  background: #ffffff0d;
+  color: #b8e89f;
+}
+.lattice-app .type-badge {
+  background: #b8e89f1f;
+  color: var(--accent);
+}
+.lattice-app .why-button,
+.lattice-app .edge-score {
+  color: var(--muted);
+  border-color: var(--line);
+  background: transparent;
+}
+.lattice-app .empty-state {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+/* Item page, explanations, answers */
+.lattice-app .item-detail,
+.lattice-app .segments article,
+.lattice-app .detail-connections,
+.lattice-app .explanation,
+.lattice-app .edge-evidence,
+.lattice-app .answer-panel,
+.lattice-app .answer-sources,
+.lattice-app .answer-source,
+.lattice-app .asset-viewer {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.lattice-app .segments p,
+.lattice-app .answer-prose p {
+  color: #d4e4d7;
+}
+.lattice-app .segment-label,
+.lattice-app .answer-note,
+.lattice-app .edge-evidence span {
+  color: var(--dim);
+}
+.lattice-app .highlighted-segment {
+  background: #b8e89f14;
+  border-color: #b8e89f66;
+}
+.lattice-app .sample-label {
+  background: #ffffff08;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.lattice-app .inline-citation,
+.lattice-app .source-number {
+  background: #b8e89f18;
+  color: #c5e8ad;
+}
+
+/* Messages */
+.lattice-app .notice {
+  background: #b8e89f14;
+  border-color: #b8e89f40;
+  color: #cfe8c3;
+}
+.lattice-app .error-message,
+.content-dialog .error-message {
+  background: #e5b4981a;
+  border-color: #e5b49855;
+  color: #f0c2a8;
+}
+.lattice-app .demo-strip {
+  background: #b8e89f0f;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.lattice-app .demo-strip a {
+  color: var(--accent);
+}
+
+/* Add-content and delete dialog */
+.content-dialog {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+.content-dialog::backdrop {
+  background: #000000b3;
+}
+.content-dialog label,
+.content-dialog .dialog-actions span,
+.content-dialog .form-help,
+.content-dialog .consent,
+.content-dialog .delete-content p {
+  color: var(--muted);
+}
+.content-dialog .modal-tabs,
+.content-dialog .dialog-actions {
+  border-color: var(--line);
+}
+.content-dialog .modal-tabs button {
+  background: transparent;
+  color: var(--muted);
+}
+.content-dialog .modal-tabs button.selected {
+  background: #b8e89f1f;
+  color: var(--ink);
+}
+.content-dialog .upload-zone {
+  background: #ffffff05;
+  border-color: var(--line-strong);
+  color: var(--muted);
+}
+.content-dialog .upload-zone strong {
+  color: var(--ink);
+}
+
+/* Setup page and splash */
+.setup-page .setup-card {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.setup-page .setup-list li {
+  color: var(--ink);
+}
+.setup-page .setup-status {
+  background: #b8e89f14;
+  color: #b5d3c0;
+}
+.setup-page .brand-mark {
+  background: #ffffff0d;
+}
+.setup-page .setup-list code {
+  background: #ffffff0d;
+  color: #b5d3c0;
+}
+.splash-screen {
+  background: var(--paper);
 }

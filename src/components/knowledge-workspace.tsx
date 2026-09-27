@@ -11,11 +11,14 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   FolderOpen,
   History,
   Link2,
   LoaderCircle,
   LogIn,
+  Menu,
   Network,
   Plus,
   Search,
@@ -111,6 +114,11 @@ export function KnowledgeWorkspace({
   const [selectedId, setSelectedId] = useState("attention"),
     [detail, setDetail] = useState(false);
   const [view, setView] = useState<View>("memory");
+  // On the Memory Map the sidebar is an overlay drawer: hidden, a compact icon rail, or expanded.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState<"compact" | "expanded">(
+    "expanded",
+  );
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   // Per-browser convenience; kept apart for the demo and the private workspace.
   const historyKey = `nodebrainer-search-history-${live ? "private" : "demo"}`;
@@ -135,6 +143,8 @@ export function KnowledgeWorkspace({
   const searchRef = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const drawerClose = useRef<HTMLButtonElement>(null);
   const searchGeneration = useRef(0);
 
   useEffect(() => {
@@ -145,6 +155,12 @@ export function KnowledgeWorkspace({
         if (stored) setHistory(historySchema.parse(JSON.parse(stored)));
       } catch {
         // Unreadable or unavailable history starts empty.
+      }
+      try {
+        if (localStorage.getItem("nodebrainer-map-drawer") === "compact")
+          setDrawerWidth("compact");
+      } catch {
+        // A per-browser preference; the expanded default is fine without it.
       }
       if (live) {
         try {
@@ -207,6 +223,19 @@ export function KnowledgeWorkspace({
     [items, live, serverEdges],
   );
   const selected = items.find((i) => i.id === selectedId);
+  // The Memory Map home: the brain fills the viewport and hosts the search bar.
+  const mapShown = view === "memory" && !loading && !(detail && selected);
+  const drawerState = mapShown ? (drawerOpen ? drawerWidth : "hidden") : null;
+  useEffect(() => {
+    if (!mapShown || !drawerOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || dialog.current?.open) return;
+      setDrawerOpen(false);
+      menuButton.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mapShown, drawerOpen]);
   const filtered = useMemo(
     () =>
       items.filter(
@@ -255,6 +284,23 @@ export function KnowledgeWorkspace({
       const data = await requestJson("/api/items");
       setItems(data.items);
       setServerEdges(data.edges);
+    }
+  }
+  function openDrawer() {
+    setDrawerOpen(true);
+    requestAnimationFrame(() => drawerClose.current?.focus());
+  }
+  function closeDrawer() {
+    setDrawerOpen(false);
+    menuButton.current?.focus();
+  }
+  function toggleDrawerWidth() {
+    const next = drawerWidth === "compact" ? "expanded" : "compact";
+    setDrawerWidth(next);
+    try {
+      localStorage.setItem("nodebrainer-map-drawer", next);
+    } catch {
+      // Remembering the choice is a convenience only.
     }
   }
   function saveHistory(next: SearchHistoryEntry[]) {
@@ -479,6 +525,60 @@ export function KnowledgeWorkspace({
     }
   }
 
+  const searchForm = (
+    <form
+      className={`search-form ${view === "memory" ? "memory-search" : ""}`}
+      role="search"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void search();
+      }}
+    >
+      <Search size={view === "memory" ? 22 : 19} />
+      <input
+        aria-label={
+          view === "memory" ? "Search memory" : "Search your knowledge"
+        }
+        placeholder={
+          view === "memory"
+            ? "What are you trying to remember?"
+            : "Ask your library a question…"
+        }
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        maxLength={500}
+      />
+      {(query || searchedQuery) && (
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="Clear search"
+          onClick={() => {
+            setQuery("");
+            resetSearch();
+          }}
+        >
+          <X size={15} />
+        </button>
+      )}
+      <button className="search-submit" disabled={searching}>
+        {searching ? (
+          <LoaderCircle size={17} className="spin" />
+        ) : (
+          <ArrowRight size={18} />
+        )}
+        <span className="sr-only">Search</span>
+      </button>
+    </form>
+  );
+  const privacyNote = live &&
+    geminiConfigured &&
+    (view === "memory" || view === "library") && (
+      <p className="answer-privacy">
+        Your question and relevant passages from your library are sent to Google
+        Gemini to compose the answer.
+      </p>
+    );
   const explanationView = explanation && (
     <div className="explanation">
       <div className="eyebrow">WHY THIS RESULT</div>
@@ -526,8 +626,43 @@ export function KnowledgeWorkspace({
   );
 
   return (
-    <div className="app-shell lattice-app">
-      <aside className="sidebar">
+    <div
+      className={`app-shell lattice-app ${drawerState ? `map-immersive drawer-${drawerState}` : ""}`}
+    >
+      <aside
+        className="sidebar"
+        id="workspace-sidebar"
+        aria-label="Workspace navigation"
+      >
+        {mapShown && (
+          <div className="drawer-controls">
+            <button
+              className="icon-button drawer-width"
+              aria-label={
+                drawerWidth === "compact"
+                  ? "Expand sidebar"
+                  : "Collapse sidebar to icons"
+              }
+              data-label={drawerWidth === "compact" ? "Expand" : undefined}
+              onClick={toggleDrawerWidth}
+            >
+              {drawerWidth === "compact" ? (
+                <ChevronsRight size={16} />
+              ) : (
+                <ChevronsLeft size={16} />
+              )}
+            </button>
+            <button
+              ref={drawerClose}
+              className="icon-button"
+              aria-label="Close sidebar"
+              data-label={drawerWidth === "compact" ? "Close" : undefined}
+              onClick={closeDrawer}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
         <Link
           className="brand"
           href={live ? "/workspace" : "/"}
@@ -541,10 +676,15 @@ export function KnowledgeWorkspace({
             Node<span className="brand-accent">Brainer</span>
           </span>
         </Link>
-        <nav aria-label="Workspace" className="sidebar-nav">
+        <nav
+          aria-label="Workspace"
+          className="sidebar-nav"
+          onClick={mapShown ? () => setDrawerOpen(false) : undefined}
+        >
           <p className="nav-label">MEMORY</p>
           <button
             className={`nav-item ${view === "memory" ? "active" : ""}`}
+            data-label="Memory Map"
             aria-current={view === "memory" ? "page" : undefined}
             onClick={() => {
               setView("memory");
@@ -557,6 +697,7 @@ export function KnowledgeWorkspace({
           </button>
           <button
             className={`nav-item ${view === "activity" ? "active" : ""}`}
+            data-label="Recent Activity"
             aria-current={view === "activity" ? "page" : undefined}
             onClick={() => {
               setView("activity");
@@ -568,6 +709,7 @@ export function KnowledgeWorkspace({
           </button>
           <button
             className={`nav-item ${view === "history" ? "active" : ""}`}
+            data-label="Search History"
             aria-current={view === "history" ? "page" : undefined}
             onClick={() => {
               setView("history");
@@ -583,6 +725,7 @@ export function KnowledgeWorkspace({
           <p className="nav-label">LIBRARY</p>
           <button
             className={`nav-item ${view === "library" && type === "all" ? "active" : ""}`}
+            data-label="My Library"
             aria-current={
               view === "library" && type === "all" ? "page" : undefined
             }
@@ -598,13 +741,17 @@ export function KnowledgeWorkspace({
             My Library<span className="nav-count">{items.length}</span>
           </button>
         </nav>
-        <div className="type-navigation library-subnav">
+        <div
+          className="type-navigation library-subnav"
+          onClick={mapShown ? () => setDrawerOpen(false) : undefined}
+        >
           {(Object.keys(typeLabels) as ItemType[]).map((t) => {
             const Icon = icons[t];
             return (
               <button
                 key={t}
                 className={`nav-item ${view === "library" && type === t ? "active" : ""}`}
+                data-label={`${typeLabels[t]}s`}
                 onClick={() => {
                   setType(t);
                   setView("library");
@@ -635,6 +782,7 @@ export function KnowledgeWorkspace({
             <a
               className="signin-icon"
               aria-label="Sign in"
+              data-label="Sign in"
               href={authConfigured ? "/auth/login" : "/setup"}
             >
               <LogIn size={17} />
@@ -642,9 +790,28 @@ export function KnowledgeWorkspace({
           )}
         </div>
       </aside>
+      {drawerState && drawerOpen && (
+        <div
+          className="drawer-backdrop"
+          aria-hidden="true"
+          onClick={closeDrawer}
+        />
+      )}
       <main className="main">
         <header className="topbar">
           <div>
+            {mapShown && (
+              <button
+                ref={menuButton}
+                className="icon-button map-menu"
+                aria-label="Open navigation"
+                aria-expanded={drawerOpen}
+                aria-controls="workspace-sidebar"
+                onClick={openDrawer}
+              >
+                <Menu size={18} />
+              </button>
+            )}
             <span className="breadcrumb">Workspace</span>
             <span className="slash">/</span>
             {viewTitles[view]}
@@ -661,6 +828,14 @@ export function KnowledgeWorkspace({
               <span />
               {live ? "Private library" : "Local demo"}
             </span>
+            {mapShown && !live && (
+              <a
+                className="map-make-yours"
+                href={authConfigured ? "/auth/login" : "/setup"}
+              >
+                Make it yours <ArrowRight size={13} />
+              </a>
+            )}
             <button
               className="icon-button"
               aria-label="Export library as JSON"
@@ -685,31 +860,37 @@ export function KnowledgeWorkspace({
           </div>
         </header>
         <div className="knowledge-layout full-width">
-          <div className={`library-panel view-${view}`}>
-            <div className="page-heading">
-              <div>
-                <div className="eyebrow">{viewTitles[view].toUpperCase()}</div>
-                <h1>
-                  {view === "memory"
-                    ? "Find what you worked on."
-                    : view === "activity"
-                      ? "Pick up where you left off."
-                      : view === "history"
-                        ? "Your recent searches."
-                        : "Everything you’ve saved."}
-                </h1>
-                <p>
-                  {view === "memory"
-                    ? "Search your notes, files, and past work."
-                    : view === "activity"
-                      ? "Your recent files, notes, and searches."
-                      : view === "history"
-                        ? "Find something you looked up before."
-                        : "Notes, files, links, and media in one place."}
-                </p>
+          <div
+            className={`library-panel view-${view} ${mapShown ? "map-home" : ""}`}
+          >
+            {!mapShown && (
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow">
+                    {viewTitles[view].toUpperCase()}
+                  </div>
+                  <h1>
+                    {view === "memory"
+                      ? "Find what you worked on."
+                      : view === "activity"
+                        ? "Pick up where you left off."
+                        : view === "history"
+                          ? "Your recent searches."
+                          : "Everything you’ve saved."}
+                  </h1>
+                  <p>
+                    {view === "memory"
+                      ? "Search your notes, files, and past work."
+                      : view === "activity"
+                        ? "Your recent files, notes, and searches."
+                        : view === "history"
+                          ? "Find something you looked up before."
+                          : "Notes, files, links, and media in one place."}
+                  </p>
+                </div>
               </div>
-            </div>
-            {!live && (
+            )}
+            {!live && !mapShown && (
               <div className="demo-strip">
                 <span>
                   <span className="status-dot" />
@@ -740,62 +921,12 @@ export function KnowledgeWorkspace({
                 </button>
               </div>
             )}
-            {(view === "memory" || view === "library") && (
-              <form
-                className={`search-form ${view === "memory" ? "memory-search" : ""}`}
-                role="search"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void search();
-                }}
-              >
-                <Search size={view === "memory" ? 22 : 19} />
-                <input
-                  aria-label={
-                    view === "memory"
-                      ? "Search memory"
-                      : "Search your knowledge"
-                  }
-                  placeholder={
-                    view === "memory"
-                      ? "What are you looking for?"
-                      : "Ask your library a question…"
-                  }
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  maxLength={500}
-                />
-                {query && (
-                  <button
-                    className="icon-button"
-                    type="button"
-                    aria-label="Clear search"
-                    onClick={() => {
-                      setQuery("");
-                      resetSearch();
-                    }}
-                  >
-                    <X size={15} />
-                  </button>
-                )}
-                <button className="search-submit" disabled={searching}>
-                  {searching ? (
-                    <LoaderCircle size={17} className="spin" />
-                  ) : (
-                    <ArrowRight size={18} />
-                  )}
-                  <span className="sr-only">Search</span>
-                </button>
-              </form>
-            )}
-            {live &&
-              geminiConfigured &&
-              (view === "memory" || view === "library") && (
-                <p className="answer-privacy">
-                  Your question and relevant passages from your library are sent
-                  to Google Gemini to compose the answer.
-                </p>
-              )}
+            {(view === "memory" || view === "library") &&
+              !mapShown &&
+              searchForm}
+            {(view === "memory" || view === "library") &&
+              !mapShown &&
+              privacyNote}
             {loading ? (
               <div className="empty-state">
                 <LoaderCircle className="spin" />
@@ -991,12 +1122,6 @@ export function KnowledgeWorkspace({
             ) : view === "memory" ? (
               <>
                 <section className="memory-map" aria-label="Memory Map">
-                  <div className="section-heading">
-                    <h2>Your memory map</h2>
-                    <span>
-                      {items.length} MEMORIES · {edges.length} CONNECTIONS
-                    </span>
-                  </div>
                   <KnowledgeGraph
                     large
                     items={items}
@@ -1022,7 +1147,8 @@ export function KnowledgeWorkspace({
                           }
                         : undefined
                     }
-                    onDismissQuestion={resetSearch}
+                    searchBar={searchForm}
+                    searchNote={privacyNote}
                   />
                 </section>
               </>
@@ -1234,14 +1360,16 @@ export function KnowledgeWorkspace({
                 </div>
               </>
             )}
-            <footer>
-              <span>
-                NodeBrainer <span>Your second mind.</span>
-              </span>
-              <span>
-                {items.length} ITEMS · {edges.length} CONNECTIONS
-              </span>
-            </footer>
+            {!mapShown && (
+              <footer>
+                <span>
+                  NodeBrainer <span>Your second mind.</span>
+                </span>
+                <span>
+                  {items.length} ITEMS · {edges.length} CONNECTIONS
+                </span>
+              </footer>
+            )}
           </div>
         </div>
       </main>

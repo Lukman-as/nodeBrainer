@@ -55,7 +55,7 @@ export function MapAnswer({
         >
           {collapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </button>
-        <button onClick={onDismiss} aria-label="Clear question">
+        <button onClick={onDismiss} aria-label="Dismiss answer">
           <X size={14} />
         </button>
       </header>
