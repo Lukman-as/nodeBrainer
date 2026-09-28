@@ -28,12 +28,16 @@ export async function POST(request: Request) {
       })
       .parse(await readJson(request, 1500000));
     let library;
+    let vector;
     let answerScope = `sample:${input.library}`;
     if (input.library === "private") {
       const ownerId = await requireOwner(request);
       answerScope = `owner:${ownerId}`;
       await limitExpensiveRequests(ownerId);
-      library = await listItems(ownerId);
+      [library, vector] = await Promise.all([
+        listItems(ownerId),
+        embedQuery(input.query),
+      ]);
     } else {
       limitSampleAnswers(request);
       library =
@@ -44,8 +48,6 @@ export async function POST(request: Request) {
         (input.type === "all" || item.type === input.type) &&
         (!input.tag || item.tags.includes(input.tag)),
     );
-    const vector =
-      input.library === "private" ? await embedQuery(input.query) : undefined;
     const retrieval = searchKnowledge(items, input.query, vector);
     const context = buildAnswerContext(library, retrieval);
     const sources = context.sources;

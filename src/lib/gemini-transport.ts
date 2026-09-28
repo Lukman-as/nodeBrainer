@@ -1,5 +1,11 @@
 import { ApiError } from "./api-error";
 
+export type GeminiCallOptions = {
+  attemptTimeout?: number;
+  preferRecent?: boolean;
+  bodyForModel?: (model: string) => unknown;
+};
+
 export function parseModels(value: string) {
   return [
     ...new Set(
@@ -26,7 +32,7 @@ export class GeminiTransport {
     action: string,
     body: unknown,
     timeout: number,
-    options: { attemptTimeout?: number; preferRecent?: boolean } = {},
+    options: GeminiCallOptions = {},
   ) {
     const names = parseModels(models.join(","));
     const preferenceKey = `${apiKey}:${action}`;
@@ -64,7 +70,9 @@ export class GeminiTransport {
               "Content-Type": "application/json",
               "x-goog-api-key": apiKey,
             },
-            body: payload,
+            body: options.bodyForModel
+              ? JSON.stringify(options.bodyForModel(name))
+              : payload,
             signal: AbortSignal.timeout(
               Math.min(remaining, options.attemptTimeout ?? remaining),
             ),
